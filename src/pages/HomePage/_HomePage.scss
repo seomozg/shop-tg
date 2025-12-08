@@ -1,0 +1,35 @@
+.products {
+	width: 100%;
+
+	&__title {
+		font-size: 36px;
+		font-weight: 300;
+		text-align: center;
+		margin-bottom: 50px;
+		letter-spacing: 2px;
+		text-transform: uppercase;
+		color: #000;
+
+		@media (max-width: 768px) {
+			font-size: 28px;
+			margin-bottom: 30px;
+		}
+	}
+
+	&__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+		gap: 30px;
+		width: 100%;
+
+		@media (max-width: 768px) {
+			grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+			gap: 20px;
+		}
+
+		@media (max-width: 480px) {
+			grid-template-columns: repeat(2, 1fr);
+			gap: 15px;
+		}
+	}
+}

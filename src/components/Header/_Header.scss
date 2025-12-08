@@ -1,0 +1,147 @@
+.header-banner {
+  background-color: #000;
+  color: #fff;
+  text-align: center;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+}
+
+.header {
+  background-color: #fff;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.logo {
+  font-size: 28px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  text-transform: lowercase;
+  color: #000;
+  text-decoration: none;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #000;
+  font-size: 14px;
+  padding: 4px;
+  transition: opacity 0.2s;
+}
+
+.icon-button:hover {
+  opacity: 0.7;
+}
+
+.icon-button svg {
+  display: block;
+}
+
+.cart-button {
+  position: relative;
+  text-decoration: none;
+}
+
+.cart-button__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background-color: #000;
+  color: #fff;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  animation: bounce 0.5s ease;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.3);
+  }
+}
+
+.cart-button {
+  position: relative;
+  text-decoration: none;
+  
+  svg {
+    transition: transform 0.3s ease;
+  }
+  
+  &:hover svg {
+    transform: scale(1.1);
+  }
+  
+  &--animate {
+    animation: cartPulse 0.5s ease;
+    
+    svg {
+      animation: cartShake 0.5s ease;
+    }
+  }
+}
+
+@keyframes cartPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+@keyframes cartShake {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-10deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 15px 20px;
+  }
+  
+  .header-right {
+    gap: 15px;
+  }
+  
+  .icon-button span {
+    display: none;
+  }
+}
+
