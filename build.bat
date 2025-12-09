@@ -27,6 +27,14 @@ if exist "dist.zip" (
     del /F /Q "dist.zip"
 )
 
+echo Копирование .htaccess...
+if exist ".htaccess" (
+    copy /Y ".htaccess" "dist\.htaccess" >nul
+    echo ✓ .htaccess скопирован в dist
+) else (
+    echo ⚠ .htaccess не найден, продолжаем без него
+)
+
 powershell -Command "Compress-Archive -Path dist\* -DestinationPath dist.zip -Force"
 
 if errorlevel 1 (

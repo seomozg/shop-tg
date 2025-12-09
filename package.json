@@ -4,9 +4,9 @@
   "description": "E-commerce shop",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node copy-htaccess.js",
     "preview": "vite preview",
-    "build:preview": "vite build && vite preview --open",
+    "build:preview": "vite build && node copy-htaccess.js && vite preview --open",
     "build:server": "node build-server.js",
     "bot": "node bot.js"
   },
