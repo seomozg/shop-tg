@@ -35,6 +35,12 @@ if exist ".htaccess" (
     echo ⚠ .htaccess не найден, продолжаем без него
 )
 
+echo Перемещение products.csv в assets...
+node copy-products-csv.js
+if errorlevel 1 (
+    echo ⚠ Ошибка при перемещении products.csv
+)
+
 powershell -Command "Compress-Archive -Path dist\* -DestinationPath dist.zip -Force"
 
 if errorlevel 1 (

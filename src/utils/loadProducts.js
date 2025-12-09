@@ -2,7 +2,7 @@ import Papa from 'papaparse'
 
 export async function loadProducts() {
   try {
-    const response = await fetch('/products.csv')
+    const response = await fetch('/assets/products.csv')
     const csvText = await response.text()
     
     return new Promise((resolve, reject) => {

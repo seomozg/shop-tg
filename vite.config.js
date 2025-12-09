@@ -8,12 +8,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    // Копировать .htaccess в dist
     rollupOptions: {
       output: {
         manualChunks: undefined
       }
     }
   }
+  // products.csv копируется вручную через copy-products-csv.js в папку assets
 })
 
