@@ -41,7 +41,9 @@ const saveMessage = (chatId, message) => {
 bot.setMyCommands([
   { command: 'start', description: 'Начать работу с ботом' },
   { command: 'help', description: 'Показать инструкцию' },
-  { command: 'status', description: 'Показать статус бота' }
+  { command: 'status', description: 'Показать статус бота' },
+  { command: 'getfile', description: 'Получить последний dist.zip' },
+  { command: 'debug', description: 'Диагностика проблем' }
 ]).then(() => {
   console.log('✓ Bot commands set successfully');
 }).catch(err => {
@@ -118,7 +120,9 @@ bot.onText(/\/help/, (msg) => {
     '💬 *Доступные команды:*\n' +
     '/start - Начать работу\n' +
     '/help - Показать эту инструкцию\n' +
-    '/status - Статус бота',
+    '/status - Статус бота\n' +
+    '/getfile - Получить последний dist.zip\n' +
+    '/debug - Диагностика проблем',
     { parse_mode: 'Markdown' }
   );
 });
@@ -138,6 +142,108 @@ bot.onText(/\/status/, (msg) => {
     `🕐 Время сервера: ${new Date().toLocaleString('ru-RU')}\n\n` +
     `👤 Ваш ID: \`${chatId}\`\n` +
     `👋 Имя: ${msg.from.first_name}`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+// Команда /getfile - получить последний dist.zip
+bot.onText(/\/getfile/, (msg) => {
+  const chatId = msg.chat.id;
+  saveMessage(chatId, msg);
+  
+  const distZipPath = path.join(__dirname, 'dist.zip');
+  
+  if (!fs.existsSync(distZipPath)) {
+    return bot.sendMessage(chatId,
+      '❌ *Файл dist.zip не найден*\n\n' +
+      'Сначала отправьте архив с файлами для сборки проекта.',
+      { parse_mode: 'Markdown' }
+    );
+  }
+  
+  const stats = fs.statSync(distZipPath);
+  const sizeInMB = (stats.size / 1024 / 1024).toFixed(2);
+  const modifiedDate = new Date(stats.mtime).toLocaleString('ru-RU');
+  
+  bot.sendMessage(chatId,
+    `📦 *Отправляю последний собранный архив*\n\n` +
+    `📊 Размер: ${sizeInMB} MB\n` +
+    `🕐 Создан: ${modifiedDate}\n\n` +
+    `Отправляю...`,
+    { parse_mode: 'Markdown' }
+  );
+  
+  console.log(`[${chatId}] Sending existing dist.zip (${sizeInMB} MB)`);
+  
+  bot.sendDocument(chatId, distZipPath, {
+    caption: 
+      '📦 *Последняя сборка проекта*\n\n' +
+      `📊 Размер: ${sizeInMB} MB\n` +
+      `🕐 Создан: ${modifiedDate}`,
+    parse_mode: 'Markdown'
+  })
+  .then(() => {
+    console.log(`[${chatId}] ✓ Existing dist.zip sent successfully`);
+  })
+  .catch(err => {
+    console.error(`[${chatId}] Error sending existing dist.zip:`, err);
+    console.error(`[${chatId}] Telegram API error:`, err.response?.body);
+    
+    bot.sendMessage(chatId,
+      '❌ *Не удалось отправить файл*\n\n' +
+      `Причина: \`${err.message}\`\n\n` +
+      'Файл находится на сервере: `dist.zip`\n' +
+      'Попросите администратора забрать его напрямую.',
+      { parse_mode: 'Markdown' }
+    );
+  });
+});
+
+// Команда /debug
+bot.onText(/\/debug/, (msg) => {
+  const chatId = msg.chat.id;
+  saveMessage(chatId, msg);
+  
+  // Проверяем наличие dist.zip
+  const distZipPath = path.join(__dirname, 'dist.zip');
+  const distExists = fs.existsSync(distZipPath);
+  let distSize = 'Не найден';
+  let distDate = '';
+  
+  if (distExists) {
+    const stats = fs.statSync(distZipPath);
+    distSize = `${(stats.size / 1024 / 1024).toFixed(2)} MB`;
+    distDate = new Date(stats.mtime).toLocaleString('ru-RU');
+  }
+  
+  // Проверяем папку dist
+  const distPath = path.join(__dirname, 'dist');
+  const distDirExists = fs.existsSync(distPath);
+  
+  // Проверяем папку public
+  const publicPath = path.join(__dirname, 'public');
+  const publicDirExists = fs.existsSync(publicPath);
+  let publicFiles = 0;
+  if (publicDirExists) {
+    publicFiles = fs.readdirSync(publicPath).length;
+  }
+  
+  bot.sendMessage(chatId,
+    '🔍 *Диагностика*\n\n' +
+    '*Файловая система:*\n' +
+    `📦 dist.zip: ${distExists ? '✅ ' + distSize : '❌ Не найден'}\n` +
+    (distExists ? `   🕐 ${distDate}\n` : '') +
+    `📁 dist/: ${distDirExists ? '✅ Существует' : '❌ Не найдена'}\n` +
+    `📁 public/: ${publicDirExists ? '✅ ' + publicFiles + ' файлов' : '❌ Не найдена'}\n\n` +
+    '*Лимиты Telegram:*\n' +
+    '📤 Максимальный размер: 50 MB\n' +
+    '⏱ Таймаут отправки: 60 секунд\n\n' +
+    '*Возможные проблемы:*\n' +
+    '• Архив > 50 MB\n' +
+    '• Медленное соединение\n' +
+    '• Недостаточно прав на файлы\n\n' +
+    (distExists ? '💡 Используйте /getfile чтобы получить файл\n' : '') +
+    '📖 Используйте /help для инструкции',
     { parse_mode: 'Markdown' }
   );
 });
@@ -227,11 +333,39 @@ bot.on('document', async (msg) => {
       const archive = archiver('zip', { zlib: { level: 9 } });
 
       output.on('close', () => {
-        const sizeInMB = (archive.pointer() / 1024 / 1024).toFixed(2);
+        const sizeInBytes = archive.pointer();
+        const sizeInMB = (sizeInBytes / 1024 / 1024).toFixed(2);
         const totalTime = ((Date.now() - buildStartTime) / 1000).toFixed(1);
         
-        console.log(`[${chatId}] Archive created: ${archive.pointer()} bytes (${sizeInMB} MB)`);
+        console.log(`[${chatId}] Archive created: ${sizeInBytes} bytes (${sizeInMB} MB)`);
         console.log(`[${chatId}] Total processing time: ${totalTime}s`);
+        
+        // Проверка размера файла (лимит Telegram: 50 MB)
+        const maxSizeInBytes = 50 * 1024 * 1024; // 50 MB
+        
+        if (sizeInBytes > maxSizeInBytes) {
+          console.error(`[${chatId}] File too large: ${sizeInMB} MB (limit: 50 MB)`);
+          bot.sendMessage(chatId,
+            '❌ *Архив слишком большой!*\n\n' +
+            `📦 Размер: ${sizeInMB} MB\n` +
+            `⚠️ Лимит Telegram: 50 MB\n\n` +
+            '💡 *Решение:*\n' +
+            `Архив сохранен локально: \`${distZipPath}\`\n\n` +
+            'Возьмите файл напрямую с сервера или сожмите изображения.',
+            { parse_mode: 'Markdown' }
+          );
+          // Cleanup
+          fs.unlinkSync(downloadPath);
+          return;
+        }
+        
+        // Проверяем, что файл существует и читаем
+        if (!fs.existsSync(distZipPath)) {
+          console.error(`[${chatId}] Archive file not found: ${distZipPath}`);
+          bot.sendMessage(chatId, '❌ Архив не найден. Попробуйте еще раз.');
+          return;
+        }
+        
         console.log(`[${chatId}] Sending archive to user...`);
         
         bot.sendDocument(chatId, distZipPath, { 
@@ -244,20 +378,77 @@ bot.on('document', async (msg) => {
             '2️⃣ Загрузите содержимое в public_html\n' +
             '3️⃣ Проверьте наличие .htaccess\n\n' +
             '⚠️ *Важно:* Загружайте файлы из папки dist, а не саму папку!\n\n' +
-            '💡 Подробная инструкция: ПАМЯТКА-ЗАГРУЗКА.txt',
-          parse_mode: 'Markdown'
+            '💡 Используйте /help для подробной инструкции',
+          parse_mode: 'Markdown',
+          disable_notification: false
         })
         .then(() => {
           console.log(`[${chatId}] ✓ Archive sent successfully`);
           // Cleanup
-          fs.unlinkSync(downloadPath);
-          console.log(`[${chatId}] ✓ Cleaned up: ${downloadPath}`);
+          try {
+            fs.unlinkSync(downloadPath);
+            console.log(`[${chatId}] ✓ Cleaned up: ${downloadPath}`);
+          } catch (cleanupErr) {
+            console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
+          }
           console.log(`[${chatId}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
           // Optional: fs.unlinkSync(distZipPath);
         })
         .catch(err => {
-          console.error(`[${chatId}] Error sending document:`, err);
-          bot.sendMessage(chatId, '❌ Ошибка при отправке архива. Попробуйте еще раз.');
+          console.error(`[${chatId}] ━━━━━━ ERROR SENDING DOCUMENT ━━━━━━`);
+          console.error(`[${chatId}] Error message:`, err.message);
+          console.error(`[${chatId}] Error code:`, err.code);
+          
+          // Логируем тело ответа от Telegram API
+          if (err.response && err.response.body) {
+            console.error(`[${chatId}] Telegram API response body:`, JSON.stringify(err.response.body, null, 2));
+          }
+          
+          // Логируем полный объект ошибки для диагностики
+          console.error(`[${chatId}] Full error object:`, JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+          console.error(`[${chatId}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+          
+          // Определяем причину ошибки
+          let errorReason = err.message;
+          let suggestions = '';
+          
+          // Проверяем конкретные типы ошибок от Telegram API
+          if (err.response && err.response.body) {
+            const telegramError = err.response.body;
+            if (telegramError.description) {
+              errorReason = telegramError.description;
+            }
+            
+            // Специфичные советы на основе ошибки
+            if (errorReason.includes('Request Entity Too Large') || errorReason.includes('file is too big')) {
+              suggestions = '• Файл превышает лимит (обычно из-за больших изображений)\n• Сожмите изображения в формат .webp\n• Уменьшите качество изображений';
+            } else if (errorReason.includes('Wrong file identifier') || errorReason.includes('file not found')) {
+              suggestions = '• Проблема с файлом на диске\n• Попробуйте отправить архив еще раз';
+            } else if (errorReason.includes('ETELEGRAM')) {
+              suggestions = '• Проблема с Telegram API\n• Проверьте токен бота\n• Попробуйте через несколько минут';
+            } else {
+              suggestions = '• Проверьте интернет-соединение\n• Попробуйте отправить архив еще раз\n• Уменьшите размер изображений';
+            }
+          }
+          
+          bot.sendMessage(chatId,
+            '❌ *Ошибка при отправке архива*\n\n' +
+            `📦 Размер: ${sizeInMB} MB\n` +
+            `❗ Причина:\n\`${errorReason}\`\n\n` +
+            '💡 *Возможные решения:*\n' +
+            suggestions + '\n\n' +
+            `📁 Архив сохранен локально: \`dist.zip\`\n` +
+            'Можете забрать его напрямую с сервера.\n\n' +
+            'Используйте /debug для диагностики.',
+            { parse_mode: 'Markdown' }
+          );
+          
+          // Cleanup даже при ошибке
+          try {
+            fs.unlinkSync(downloadPath);
+          } catch (cleanupErr) {
+            console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
+          }
         });
       });
 
@@ -287,13 +478,17 @@ bot.on('document', async (msg) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error(`[${chatId}] Critical error:`, err);
+    console.error(`[${chatId}] Error stack:`, err.stack);
+    
     bot.sendMessage(chatId, 
       `❌ *Произошла ошибка:*\n\n\`\`\`\n${err.message}\n\`\`\`\n\n` +
-      '💡 Попробуйте:\n' +
-      '• Проверить архив\n' +
+      '💡 *Попробуйте:*\n' +
+      '• Проверить корректность архива\n' +
       '• Отправить файл заново\n' +
-      '• Использовать /help',
+      '• Убедиться, что в архиве есть нужные файлы\n' +
+      '• Использовать /help для инструкции\n\n' +
+      '📞 Если проблема повторяется, свяжитесь с администратором',
       { parse_mode: 'Markdown' }
     );
   }
