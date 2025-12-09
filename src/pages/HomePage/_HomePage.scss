@@ -33,3 +33,18 @@
 		}
 	}
 }
+
+.no-products {
+	font-size: 18px;
+	font-weight: 300;
+	text-align: center;
+	padding: 60px 20px;
+	color: #666;
+	text-transform: lowercase;
+	letter-spacing: 1px;
+
+	@media (max-width: 768px) {
+		font-size: 16px;
+		padding: 40px 20px;
+	}
+}

@@ -8,20 +8,29 @@ import CartPage from './pages/CartPage/CartPage'
 import './_App.scss'
 
 function App() {
-  return (
-    <CartProvider>
-      <Router>
-        <div className="app">
-          <Header />
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/product/:id" element={<ProductDetailPage />} />
-            <Route path="/cart" element={<CartPage />} />
-          </Routes>
-        </div>
-      </Router>
-    </CartProvider>
-  )
+  console.log('📱 App компонент рендерится...');
+  console.log('📱 App: текущий URL:', window.location.href);
+  console.log('📱 App: путь:', window.location.pathname);
+  
+  try {
+    return (
+      <CartProvider>
+        <Router>
+          <div className="app">
+            <Header />
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/product/:id" element={<ProductDetailPage />} />
+              <Route path="/cart" element={<CartPage />} />
+            </Routes>
+          </div>
+        </Router>
+      </CartProvider>
+    )
+  } catch (error) {
+    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА в App:', error);
+    return <div>Ошибка: {error.message}</div>;
+  }
 }
 
 export default App

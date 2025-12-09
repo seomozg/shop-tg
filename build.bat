@@ -27,15 +27,7 @@ if exist "dist.zip" (
     del /F /Q "dist.zip"
 )
 
-echo Копирование .htaccess...
-if exist ".htaccess" (
-    copy /Y ".htaccess" "dist\.htaccess" >nul
-    echo ✓ .htaccess скопирован в dist
-) else (
-    echo ⚠ .htaccess не найден, продолжаем без него
-)
-
-echo Перемещение products.csv в assets...
+echo Копирование products.csv в корень dist...
 node copy-products-csv.js
 if errorlevel 1 (
     echo ⚠ Ошибка при перемещении products.csv
