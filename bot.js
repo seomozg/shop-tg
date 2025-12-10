@@ -18,7 +18,7 @@ const bot = new TelegramBot(token, { polling: true });
 // Хранилище последних сообщений для каждого чата (максимум 10)
 const chatMessages = new Map();
 
-// Хранилище состояний чатов (ожидание логотипа, архив и т.д.)
+// Хранилище состояний чатов
 const chatStates = new Map();
 
 // Функция для сохранения сообщения (ограничение: 10 последних)
@@ -242,172 +242,17 @@ bot.on('document', async (msg) => {
   // Сохраняем сообщение с документом
   saveMessage(chatId, msg);
 
-  // Если ожидаем логотип, игнорируем документы
-  const state = chatStates.get(chatId);
-  if (state && state.waitingForLogo) {
-    return;
-  }
-
   if (mimeType !== 'application/zip' && !fileName.endsWith('.zip')) {
     return bot.sendMessage(chatId, '❌ Пожалуйста, пришлите ZIP архив.');
   }
 
-  // Спрашиваем про логотип перед обработкой архива
-  bot.sendMessage(chatId, 
-    '📦 Архив получен!\n\n' +
-    '❓ Будет ли логотип у магазина?\n\n' +
-    'Если да, отправьте изображение логотипа.\n' +
-    'Если нет, отправьте "нет" или "no".',
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '✅ Да, будет логотип', callback_data: 'logo_yes' }],
-          [{ text: '❌ Нет, без логотипа', callback_data: 'logo_no' }]
-        ]
-      }
-    }
-  );
-
-  // Сохраняем архив и состояние ожидания ответа
-  chatStates.set(chatId, {
-    waitingForLogoAnswer: true,
-    archiveFileId: fileId,
-    archiveFileName: fileName
-  });
+  // Сразу начинаем обработку архива
+  processArchive(chatId, fileId, fileName);
 });
 
-// Обработка callback_query (кнопки)
-
-// Обработка callback_query (кнопки)
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
-
-  if (data === 'logo_yes') {
-    await bot.answerCallbackQuery(query.id);
-    chatStates.set(chatId, {
-      ...chatStates.get(chatId),
-      waitingForLogoAnswer: false,
-      waitingForLogo: true
-    });
-    bot.sendMessage(chatId, '📸 Отлично! Отправьте изображение логотипа.');
-  } else if (data === 'logo_no') {
-    await bot.answerCallbackQuery(query.id);
-    const state = chatStates.get(chatId);
-    if (state && state.archiveFileId) {
-      chatStates.set(chatId, {
-        ...state,
-        waitingForLogoAnswer: false,
-        waitingForLogo: false,
-        hasLogo: false
-      });
-      // Начинаем обработку архива без логотипа
-      processArchive(chatId, state.archiveFileId, state.archiveFileName, null);
-    }
-  }
-});
-
-// Обработка фото (логотип)
-bot.on('photo', async (msg) => {
-  const chatId = msg.chat.id;
-  const state = chatStates.get(chatId);
-
-  if (!state || !state.waitingForLogo) {
-    return; // Игнорируем фото, если не ожидаем логотип
-  }
-
-  saveMessage(chatId, msg);
-
-  // Берем фото наибольшего размера
-  const photos = msg.photo;
-  const largestPhoto = photos[photos.length - 1];
-  const fileId = largestPhoto.file_id;
-
-  bot.sendMessage(chatId, '⬇️ Загружаю логотип...');
-
-  try {
-    const logoDir = path.join(__dirname, 'public', 'img');
-    
-    // Создаем папку если не существует
-    if (!fs.existsSync(logoDir)) {
-      fs.mkdirSync(logoDir, { recursive: true });
-    }
-
-    // Скачиваем фото во временную папку
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    // Скачиваем файл
-    await bot.downloadFile(fileId, tempDir);
-    
-    // После скачивания ищем файл в tempDir напрямую
-    // Это более надежно, чем полагаться на возвращаемый путь
-    const filesInTemp = fs.readdirSync(tempDir);
-    if (filesInTemp.length === 0) {
-      throw new Error('Файл не был скачан в temp директорию');
-    }
-    
-    // Используем последний файл (скорее всего это наш только что скачанный файл)
-    // Сортируем по времени модификации, берем самый новый
-    const filesWithStats = filesInTemp.map(file => ({
-      name: file,
-      path: path.join(tempDir, file),
-      mtime: fs.statSync(path.join(tempDir, file)).mtime
-    }));
-    filesWithStats.sort((a, b) => b.mtime - a.mtime);
-    
-    const tempPath = filesWithStats[0].path;
-    
-    const logoPath = path.join(logoDir, 'logo.png');
-
-    // Переименовываем в logo.png
-    if (fs.existsSync(logoPath)) {
-      fs.unlinkSync(logoPath);
-    }
-    fs.copyFileSync(tempPath, logoPath);
-    
-    // Удаляем временный файл
-    try {
-      fs.unlinkSync(tempPath);
-    } catch (cleanupErr) {
-      console.warn(`[${chatId}] Не удалось удалить временный файл:`, cleanupErr.message);
-    }
-
-    bot.sendMessage(chatId, '✅ Логотип сохранен! Начинаю обработку архива...');
-
-    // Обновляем состояние и начинаем обработку архива
-    chatStates.set(chatId, {
-      ...state,
-      waitingForLogo: false,
-      hasLogo: true,
-      logoPath: logoPath
-    });
-
-    // Начинаем обработку архива с логотипом
-    processArchive(chatId, state.archiveFileId, state.archiveFileName, logoPath);
-  } catch (err) {
-    console.error(`[${chatId}] Error downloading logo:`, err);
-    console.error(`[${chatId}] Error stack:`, err.stack);
-    
-    // Очищаем состояние при ошибке
-    chatStates.delete(chatId);
-    
-    bot.sendMessage(chatId, 
-      '❌ *Ошибка при загрузке логотипа*\n\n' +
-      `Причина: ${err.message}\n\n` +
-      '💡 *Попробуйте:*\n' +
-      '• Отправить изображение еще раз\n' +
-      '• Использовать другой формат (PNG, JPG)\n' +
-      '• Убедиться, что файл не поврежден',
-      { parse_mode: 'Markdown' }
-    );
-  }
-});
 
 // Функция обработки архива
-async function processArchive(chatId, fileId, fileName, logoPath) {
+async function processArchive(chatId, fileId, fileName) {
   bot.sendMessage(chatId, '📦 Начинаю обработку архива...');
 
   try {
@@ -420,18 +265,6 @@ async function processArchive(chatId, fileId, fileName, logoPath) {
     bot.sendMessage(chatId, '🧹 Очищаю старые файлы...');
     const publicDir = path.join(__dirname, 'public');
     cleanDirectory(publicDir);
-
-    // Сохраняем логотип если есть (после очистки, но до распаковки архива)
-    if (logoPath && fs.existsSync(logoPath)) {
-      const logoDest = path.join(publicDir, 'img', 'logo.png');
-      const logoDestDir = path.dirname(logoDest);
-      if (!fs.existsSync(logoDestDir)) {
-        fs.mkdirSync(logoDestDir, { recursive: true });
-      }
-      fs.copyFileSync(logoPath, logoDest);
-      // Обновляем Header.jsx с логотипом
-      updateHeaderWithLogo();
-    }
 
     // 2. Unzip
     bot.sendMessage(chatId, '📂 Распаковываю архив...');
@@ -630,60 +463,9 @@ async function processArchive(chatId, fileId, fileName, logoPath) {
   }
 }
 
-// Функция для обновления Header.jsx с логотипом
-function updateHeaderWithLogo() {
-  const headerPath = path.join(__dirname, 'src', 'components', 'Header', 'Header.jsx');
-  
-  if (!fs.existsSync(headerPath)) {
-    console.error('Header.jsx not found');
-    return;
-  }
-  
-  const headerContent = fs.readFileSync(headerPath, 'utf8');
-  
-  // Проверяем, есть ли уже логотип
-  if (headerContent.includes('img/logo.png')) {
-    return; // Уже обновлен
-  }
-
-  // Заменяем текст "shop" на изображение логотипа
-  const updatedContent = headerContent.replace(
-    /<Link to="\/" className="logo">shop<\/Link>/,
-    `<Link to="/" className="logo">
-          <img alt="" src="img/logo.png"/>
-        </Link>`
-  );
-
-  fs.writeFileSync(headerPath, updatedContent, 'utf8');
-}
-
 // Обработка обычных текстовых сообщений
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
-  const state = chatStates.get(chatId);
-  
-  // Если ожидаем ответ о логотипе
-  if (state && state.waitingForLogoAnswer) {
-    const text = msg.text?.toLowerCase();
-    if (text === 'нет' || text === 'no' || text === 'н') {
-      chatStates.set(chatId, {
-        ...state,
-        waitingForLogoAnswer: false,
-        waitingForLogo: false,
-        hasLogo: false
-      });
-      processArchive(chatId, state.archiveFileId, state.archiveFileName, null);
-      return;
-    } else if (text === 'да' || text === 'yes' || text === 'д') {
-      chatStates.set(chatId, {
-        ...state,
-        waitingForLogoAnswer: false,
-        waitingForLogo: true
-      });
-      bot.sendMessage(chatId, '📸 Отлично! Отправьте изображение логотипа.');
-      return;
-    }
-  }
   
   // Игнорируем команды и документы (они обрабатываются отдельно)
   if (msg.text && !msg.text.startsWith('/') && !msg.document && !msg.photo) {
