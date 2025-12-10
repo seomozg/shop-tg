@@ -2,9 +2,9 @@ import Papa from 'papaparse'
 
 export async function loadProducts() {
   try {
+    // В режиме разработки Vite файлы из public доступны по корневому пути
+    // В продакшене файл должен быть в корне dist
     const csvUrl = 'products.csv';
-    
-    console.log('🔍 Loading products from:', csvUrl);
     
     const response = await fetch(csvUrl)
     
@@ -15,23 +15,59 @@ export async function loadProducts() {
     }
     
     const csvText = await response.text()
-    console.log('✅ Products loaded successfully, CSV length:', csvText.length);
+    
+    // Проверяем, что получили CSV, а не HTML (например, страницу 404)
+    if (csvText.trim().startsWith('<!DOCTYPE') || csvText.trim().startsWith('<html')) {
+      console.error('❌ Received HTML instead of CSV. File not found or wrong path.');
+      console.error('❌ First 200 chars of response:', csvText.substring(0, 200));
+      return [];
+    }
     
     return new Promise((resolve, reject) => {
-      Papa.parse(csvText, {
+      // Убираем BOM если есть
+      const cleanCsvText = csvText.replace(/^\uFEFF/, '')
+      
+      Papa.parse(cleanCsvText, {
         header: true,
         skipEmptyLines: true,
+        delimiter: ',',
+        quoteChar: '"',
+        escapeChar: '"',
+        newline: '\n',
+        transformHeader: (header) => header.trim(),
+        transform: (value, field) => {
+          if (typeof value === 'string') {
+            return value.trim()
+          }
+          return value
+        },
         complete: (results) => {
-          console.log('📊 CSV parsed, rows found:', results.data.length);
-          const products = results.data.map((product, index) => ({
-            id: product.id || index,
-            title: product.title || '',
-            description: product.description || '',
-            category: product.category || '',
-            oldPrice: product["old-price"] || '',
-            newPrice: product["new-price"] || '',
-          }))
-          console.log('✅ Products processed:', products.length);
+          const products = results.data.map((product, index) => {
+            // Преобразуем ID в число, убирая пробелы и другие символы
+            let productId = product.id
+            if (productId !== undefined && productId !== null && productId !== '') {
+              productId = String(productId).trim()
+              productId = productId ? Number(productId) : index
+            } else {
+              productId = index
+            }
+            
+            // Получаем значения, проверяя разные варианты названий полей
+            const title = product.title || product.Title || ''
+            const description = product.description || product.Description || ''
+            const category = product.category || product.Category || ''
+            const oldPrice = product["old-price"] || product["old_price"] || product["Old-Price"] || ''
+            const newPrice = product["new-price"] || product["new_price"] || product["New-Price"] || ''
+            
+            return {
+              id: productId,
+              title: title,
+              description: description,
+              category: category,
+              oldPrice: oldPrice,
+              newPrice: newPrice,
+            }
+          })
           resolve(products)
         },
         error: (error) => {

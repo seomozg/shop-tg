@@ -14,9 +14,7 @@ const output = fs.createWriteStream(distZipPath);
 const archive = archiver('zip', { zlib: { level: 9 } });
 
 output.on('close', () => {
-  const sizeInBytes = archive.pointer();
-  const sizeInMB = (sizeInBytes / 1024 / 1024).toFixed(2);
-  console.log(`✓ Archive created: dist.zip (${sizeInMB} MB)`);
+  // Archive created successfully
 });
 
 archive.on('error', (err) => {

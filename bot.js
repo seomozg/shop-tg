@@ -18,6 +18,9 @@ const bot = new TelegramBot(token, { polling: true });
 // Хранилище последних сообщений для каждого чата (максимум 10)
 const chatMessages = new Map();
 
+// Хранилище состояний чатов (ожидание логотипа, архив и т.д.)
+const chatStates = new Map();
+
 // Функция для сохранения сообщения (ограничение: 10 последних)
 const saveMessage = (chatId, message) => {
   if (!chatMessages.has(chatId)) {
@@ -44,26 +47,13 @@ bot.setMyCommands([
   { command: 'status', description: 'Показать статус бота' },
   { command: 'getfile', description: 'Получить последний dist.zip' },
   { command: 'debug', description: 'Диагностика проблем' }
-]).then(() => {
-  console.log('✓ Bot commands set successfully');
-}).catch(err => {
+]).catch(err => {
   console.error('Error setting bot commands:', err);
 });
 
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🤖 Bot started successfully!');
-console.log('📝 Commands available: /start, /help, /status');
-console.log('💾 Message history limit: 10 per chat');
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🛑 Shutting down bot...');
-  console.log(`💬 Total chats in history: ${chatMessages.size}`);
   bot.stopPolling();
-  console.log('✓ Bot stopped');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   process.exit(0);
 });
 
@@ -173,17 +163,12 @@ bot.onText(/\/getfile/, (msg) => {
     { parse_mode: 'Markdown' }
   );
 
-  console.log(`[${chatId}] Sending existing dist.zip (${sizeInMB} MB)`);
-
   bot.sendDocument(chatId, distZipPath, {
     caption:
       '📦 *Последняя сборка проекта*\n\n' +
       `📊 Размер: ${sizeInMB} MB\n` +
       `🕐 Создан: ${modifiedDate}`,
     parse_mode: 'Markdown'
-  })
-  .then(() => {
-    console.log(`[${chatId}] ✓ Existing dist.zip sent successfully`);
   })
   .catch(err => {
     console.error(`[${chatId}] Error sending existing dist.zip:`, err);
@@ -257,37 +242,167 @@ bot.on('document', async (msg) => {
   // Сохраняем сообщение с документом
   saveMessage(chatId, msg);
 
+  // Если ожидаем логотип, игнорируем документы
+  const state = chatStates.get(chatId);
+  if (state && state.waitingForLogo) {
+    return;
+  }
+
   if (mimeType !== 'application/zip' && !fileName.endsWith('.zip')) {
     return bot.sendMessage(chatId, '❌ Пожалуйста, пришлите ZIP архив.');
   }
 
-  bot.sendMessage(chatId, '📦 Архив получен. Начинаю обработку...');
+  // Спрашиваем про логотип перед обработкой архива
+  bot.sendMessage(chatId, 
+    '📦 Архив получен!\n\n' +
+    '❓ Будет ли логотип у магазина?\n\n' +
+    'Если да, отправьте изображение логотипа.\n' +
+    'Если нет, отправьте "нет" или "no".',
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Да, будет логотип', callback_data: 'logo_yes' }],
+          [{ text: '❌ Нет, без логотипа', callback_data: 'logo_no' }]
+        ]
+      }
+    }
+  );
+
+  // Сохраняем архив и состояние ожидания ответа
+  chatStates.set(chatId, {
+    waitingForLogoAnswer: true,
+    archiveFileId: fileId,
+    archiveFileName: fileName
+  });
+});
+
+// Обработка callback_query (кнопки)
+
+// Обработка callback_query (кнопки)
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const data = query.data;
+
+  if (data === 'logo_yes') {
+    await bot.answerCallbackQuery(query.id);
+    chatStates.set(chatId, {
+      ...chatStates.get(chatId),
+      waitingForLogoAnswer: false,
+      waitingForLogo: true
+    });
+    bot.sendMessage(chatId, '📸 Отлично! Отправьте изображение логотипа.');
+  } else if (data === 'logo_no') {
+    await bot.answerCallbackQuery(query.id);
+    const state = chatStates.get(chatId);
+    if (state && state.archiveFileId) {
+      chatStates.set(chatId, {
+        ...state,
+        waitingForLogoAnswer: false,
+        waitingForLogo: false,
+        hasLogo: false
+      });
+      // Начинаем обработку архива без логотипа
+      processArchive(chatId, state.archiveFileId, state.archiveFileName, null);
+    }
+  }
+});
+
+// Обработка фото (логотип)
+bot.on('photo', async (msg) => {
+  const chatId = msg.chat.id;
+  const state = chatStates.get(chatId);
+
+  if (!state || !state.waitingForLogo) {
+    return; // Игнорируем фото, если не ожидаем логотип
+  }
+
+  saveMessage(chatId, msg);
+
+  // Берем фото наибольшего размера
+  const photos = msg.photo;
+  const largestPhoto = photos[photos.length - 1];
+  const fileId = largestPhoto.file_id;
+
+  bot.sendMessage(chatId, '⬇️ Загружаю логотип...');
+
+  try {
+    const logoDir = path.join(__dirname, 'public', 'img');
+    
+    // Создаем папку если не существует
+    if (!fs.existsSync(logoDir)) {
+      fs.mkdirSync(logoDir, { recursive: true });
+    }
+
+    // Скачиваем фото во временную папку
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const downloadPath = await bot.downloadFile(fileId, tempDir);
+    const tempPath = path.join(tempDir, downloadPath);
+    const logoPath = path.join(logoDir, 'logo.png');
+
+    // Переименовываем в logo.png
+    if (fs.existsSync(logoPath)) {
+      fs.unlinkSync(logoPath);
+    }
+    fs.copyFileSync(tempPath, logoPath);
+    fs.unlinkSync(tempPath); // Удаляем временный файл
+
+    bot.sendMessage(chatId, '✅ Логотип сохранен! Начинаю обработку архива...');
+
+    // Обновляем состояние и начинаем обработку архива
+    chatStates.set(chatId, {
+      ...state,
+      waitingForLogo: false,
+      hasLogo: true,
+      logoPath: logoPath
+    });
+
+    // Начинаем обработку архива с логотипом
+    processArchive(chatId, state.archiveFileId, state.archiveFileName, logoPath);
+  } catch (err) {
+    console.error(`[${chatId}] Error downloading logo:`, err);
+    bot.sendMessage(chatId, '❌ Ошибка при загрузке логотипа. Попробуйте еще раз.');
+  }
+});
+
+// Функция обработки архива
+async function processArchive(chatId, fileId, fileName, logoPath) {
+  bot.sendMessage(chatId, '📦 Начинаю обработку архива...');
 
   try {
     // Скачивание файла
-    console.log(`[${chatId}] Downloading file: ${fileName}`);
     bot.sendMessage(chatId, '⬇️ Загружаю архив...');
 
     const downloadPath = await bot.downloadFile(fileId, './');
-    const fileSizeMB = (fs.statSync(downloadPath).size / 1024 / 1024).toFixed(2);
-    console.log(`[${chatId}] Downloaded to ${downloadPath} (${fileSizeMB} MB)`);
 
     // 1. Clean public directory
     bot.sendMessage(chatId, '🧹 Очищаю старые файлы...');
     const publicDir = path.join(__dirname, 'public');
-    console.log(`[${chatId}] Cleaning public directory...`);
     cleanDirectory(publicDir);
+
+    // Сохраняем логотип если есть (после очистки, но до распаковки архива)
+    if (logoPath && fs.existsSync(logoPath)) {
+      const logoDest = path.join(publicDir, 'img', 'logo.png');
+      const logoDestDir = path.dirname(logoDest);
+      if (!fs.existsSync(logoDestDir)) {
+        fs.mkdirSync(logoDestDir, { recursive: true });
+      }
+      fs.copyFileSync(logoPath, logoDest);
+      // Обновляем Header.jsx с логотипом
+      updateHeaderWithLogo();
+    }
 
     // 2. Unzip
     bot.sendMessage(chatId, '📂 Распаковываю архив...');
-    console.log(`[${chatId}] Extracting archive...`);
     const zip = new AdmZip(downloadPath);
     zip.extractAllTo(publicDir, true);
 
     // Handle case where user zipped the folder "public" itself, creating public/public/...
     const items = fs.readdirSync(publicDir);
     if (items.length === 1 && items[0] === 'public' && fs.statSync(path.join(publicDir, 'public')).isDirectory()) {
-       console.log(`[${chatId}] Detected nested 'public' folder, flattening...`);
        const nestedPublic = path.join(publicDir, 'public');
        const nestedItems = fs.readdirSync(nestedPublic);
        nestedItems.forEach(item => {
@@ -296,14 +411,10 @@ bot.on('document', async (msg) => {
        fs.rmdirSync(nestedPublic);
     }
 
-    const fileCount = items.length;
-    console.log(`[${chatId}] Extracted ${fileCount} items`);
-
     // 3. Build
     bot.sendMessage(chatId, '🔨 Сборка проекта (npm run build)...\n⏱ Это может занять 1-3 минуты.');
 
     const buildStartTime = Date.now();
-    console.log(`[${chatId}] Starting build...`);
 
     exec('npm run build', (error, stdout, stderr) => {
       if (error) {
@@ -319,15 +430,12 @@ bot.on('document', async (msg) => {
       }
 
       const buildTime = ((Date.now() - buildStartTime) / 1000).toFixed(1);
-      console.log(`[${chatId}] Build complete in ${buildTime}s`);
 
       bot.sendMessage(chatId, `✅ Сборка завершена за ${buildTime}с\n📦 Создаю архив...`);
 
       // 4. Zip dist
       const distPath = path.join(__dirname, 'dist');
       const distZipPath = path.join(__dirname, 'dist.zip');
-
-      console.log(`[${chatId}] Creating archive...`);
 
       const output = fs.createWriteStream(distZipPath);
       const archive = archiver('zip', { zlib: { level: 9 } });
@@ -337,8 +445,6 @@ bot.on('document', async (msg) => {
         const sizeInMB = (sizeInBytes / 1024 / 1024).toFixed(2);
         const totalTime = ((Date.now() - buildStartTime) / 1000).toFixed(1);
 
-        console.log(`[${chatId}] Archive created: ${sizeInBytes} bytes (${sizeInMB} MB)`);
-        console.log(`[${chatId}] Total processing time: ${totalTime}s`);
 
         // Проверка размера файла (лимит Telegram: 50 MB)
         const maxSizeInBytes = 50 * 1024 * 1024; // 50 MB
@@ -366,8 +472,6 @@ bot.on('document', async (msg) => {
           return;
         }
 
-        console.log(`[${chatId}] Sending archive to user...`);
-
         bot.sendDocument(chatId, distZipPath, { 
           caption: 
             '🎉 Сборка завершена!\n\n' +
@@ -380,19 +484,16 @@ bot.on('document', async (msg) => {
             '⚠️ Важно: Загружайте файлы из папки dist, а не саму папку!\n\n' +
             '💡 Используйте /help для подробной инструкции',
           disable_notification: false
-          // Убрали parse_mode: 'Markdown' чтобы избежать конфликта с эмодзи и спецсимволами
         })
         .then(() => {
-          console.log(`[${chatId}] ✓ Archive sent successfully`);
           // Cleanup
           try {
             fs.unlinkSync(downloadPath);
-            console.log(`[${chatId}] ✓ Cleaned up: ${downloadPath}`);
           } catch (cleanupErr) {
             console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
           }
-          console.log(`[${chatId}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-          // Optional: fs.unlinkSync(distZipPath);
+          // Очищаем состояние
+          chatStates.delete(chatId);
         })
         .catch(err => {
           console.error(`[${chatId}] ━━━━━━ ERROR SENDING DOCUMENT ━━━━━━`);
@@ -440,7 +541,6 @@ bot.on('document', async (msg) => {
             '📁 Архив сохранен локально: dist.zip\n' +
             'Можете забрать его напрямую с сервера.\n\n' +
             'Используйте /debug для диагностики.'
-            // Убрали parse_mode: 'Markdown' чтобы избежать проблем с парсингом
           );
 
           // Cleanup даже при ошибке
@@ -449,6 +549,8 @@ bot.on('document', async (msg) => {
           } catch (cleanupErr) {
             console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
           }
+          // Очищаем состояние
+          chatStates.delete(chatId);
         });
       });
 
@@ -470,7 +572,6 @@ bot.on('document', async (msg) => {
       // Архивируем саму папку dist целиком (с её именем)
       archive.directory(distPath, 'dist');
 
-      console.log(`[${chatId}] Finalizing archive...`);
       archive.finalize();
     });
 
@@ -482,21 +583,72 @@ bot.on('document', async (msg) => {
       `❌ *Произошла ошибка:*\n\n\`\`\`\n${err.message}\n\`\`\`\n\n` +
       '💡 *Попробуйте:*\n' +
       '• Проверить корректность архива\n' +
-      '• Отправить файл заново\n' +
-      '• Убедиться, что в архиве есть нужные файлы\n' +
-      '• Использовать /help для инструкции\n\n' +
-      '📞 Если проблема повторяется, свяжитесь с администратором',
+      '• Отправить архив еще раз\n' +
+      '• Использовать /debug для диагностики',
       { parse_mode: 'Markdown' }
     );
+    // Очищаем состояние
+    chatStates.delete(chatId);
   }
-});
+}
+
+// Функция для обновления Header.jsx с логотипом
+function updateHeaderWithLogo() {
+  const headerPath = path.join(__dirname, 'src', 'components', 'Header', 'Header.jsx');
+  
+  if (!fs.existsSync(headerPath)) {
+    console.error('Header.jsx not found');
+    return;
+  }
+  
+  const headerContent = fs.readFileSync(headerPath, 'utf8');
+  
+  // Проверяем, есть ли уже логотип
+  if (headerContent.includes('img/logo.png')) {
+    return; // Уже обновлен
+  }
+
+  // Заменяем текст "shop" на изображение логотипа
+  const updatedContent = headerContent.replace(
+    /<Link to="\/" className="logo">shop<\/Link>/,
+    `<Link to="/" className="logo">
+          <img alt="" src="img/logo.png"/>
+        </Link>`
+  );
+
+  fs.writeFileSync(headerPath, updatedContent, 'utf8');
+}
 
 // Обработка обычных текстовых сообщений
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
+  const state = chatStates.get(chatId);
+  
+  // Если ожидаем ответ о логотипе
+  if (state && state.waitingForLogoAnswer) {
+    const text = msg.text?.toLowerCase();
+    if (text === 'нет' || text === 'no' || text === 'н') {
+      chatStates.set(chatId, {
+        ...state,
+        waitingForLogoAnswer: false,
+        waitingForLogo: false,
+        hasLogo: false
+      });
+      processArchive(chatId, state.archiveFileId, state.archiveFileName, null);
+      return;
+    } else if (text === 'да' || text === 'yes' || text === 'д') {
+      chatStates.set(chatId, {
+        ...state,
+        waitingForLogoAnswer: false,
+        waitingForLogo: true
+      });
+      bot.sendMessage(chatId, '📸 Отлично! Отправьте изображение логотипа.');
+      return;
+    }
+  }
   
   // Игнорируем команды и документы (они обрабатываются отдельно)
-  if (msg.text && !msg.text.startsWith('/') && !msg.document) {
+  if (msg.text && !msg.text.startsWith('/') && !msg.document && !msg.photo) {
     saveMessage(chatId, msg);
     
     bot.sendMessage(chatId,

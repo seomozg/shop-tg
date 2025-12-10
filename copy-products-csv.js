@@ -9,14 +9,12 @@ const destPath = path.join(__dirname, 'dist', 'products.csv');
 
 // Проверяем, существует ли исходный файл в public
 if (!fs.existsSync(sourcePath)) {
-  console.log('⚠ products.csv not found in public/ directory');
   process.exit(0);
 }
 
 try {
   // Копируем файл из public напрямую в корень dist
   fs.copyFileSync(sourcePath, destPath);
-  console.log('✓ products.csv copied to dist root');
 } catch (err) {
   console.error('Error copying products.csv:', err);
   process.exit(1);

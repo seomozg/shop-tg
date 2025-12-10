@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useCart } from '../../contexts/CartContext'
 import './_ProductCard.scss'
 
-function ProductCard({ product, index }) {
+function ProductCard({ product }) {
   const { addToCart } = useCart()
 
   const handleAddToCart = (e) => {
@@ -14,10 +14,10 @@ function ProductCard({ product, index }) {
   }
 
   return (
-    <Link to={`/product/${product.id - 1}`} className="product-card">
+    <Link to={`/product/${product.id}`} className="product-card">
       <div className="product-card__img">
         <img 
-          src={`img/products/${index}.webp`}
+          src={`img/products/${product.id}.webp`}
           alt={product.title}
           loading="lazy"
         />

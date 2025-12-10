@@ -28,17 +28,34 @@ function ProductDetailPage() {
 	useEffect(() => {
 		async function fetchProduct() {
 			setLoading(true)
-			const products = await loadProducts()
-			const foundProduct = products[parseInt(id)]
-			setProduct(foundProduct)
-			
-			// Загружаем изображения продукта
-			if (foundProduct) {
-				const productImages = await loadProductImages(foundProduct.id)
-				setImages(productImages)
+			try {
+				const products = await loadProducts()
+				const productId = parseInt(id)
+				
+				// Ищем продукт по ID (приводим оба к числу для сравнения)
+				let foundProduct = products.find(p => Number(p.id) === productId)
+				
+				// Если не нашли по ID, пробуем найти по индексу (для обратной совместимости)
+				if (!foundProduct && productId >= 0 && productId < products.length) {
+					foundProduct = products[productId]
+				}
+				
+				setProduct(foundProduct || null)
+				
+				// Загружаем изображения продукта
+				if (foundProduct) {
+					const productImages = await loadProductImages(foundProduct.id)
+					setImages(productImages)
+				} else {
+					setImages([])
+				}
+			} catch (error) {
+				console.error('❌ Error loading product:', error)
+				setProduct(null)
+				setImages([])
+			} finally {
+				setLoading(false)
 			}
-			
-			setLoading(false)
 		}
 
 		fetchProduct()

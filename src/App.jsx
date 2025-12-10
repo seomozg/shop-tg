@@ -8,10 +8,6 @@ import CartPage from './pages/CartPage/CartPage'
 import './_App.scss'
 
 function App() {
-  console.log('📱 App компонент рендерится...');
-  console.log('📱 App: текущий URL:', window.location.href);
-  console.log('📱 App: путь:', window.location.pathname);
-  
   try {
     return (
       <CartProvider>
