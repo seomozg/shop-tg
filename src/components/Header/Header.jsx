@@ -29,7 +29,6 @@ function Header() {
               src="img/logo.png" 
               alt="shop" 
               className="logo__image"
-              onError={() => setShowLogo(false)}
             />
           </Link>
         </div>
