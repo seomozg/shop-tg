@@ -339,8 +339,27 @@ bot.on('photo', async (msg) => {
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    const downloadPath = await bot.downloadFile(fileId, tempDir);
-    const tempPath = path.join(tempDir, downloadPath);
+    // Скачиваем файл
+    await bot.downloadFile(fileId, tempDir);
+    
+    // После скачивания ищем файл в tempDir напрямую
+    // Это более надежно, чем полагаться на возвращаемый путь
+    const filesInTemp = fs.readdirSync(tempDir);
+    if (filesInTemp.length === 0) {
+      throw new Error('Файл не был скачан в temp директорию');
+    }
+    
+    // Используем последний файл (скорее всего это наш только что скачанный файл)
+    // Сортируем по времени модификации, берем самый новый
+    const filesWithStats = filesInTemp.map(file => ({
+      name: file,
+      path: path.join(tempDir, file),
+      mtime: fs.statSync(path.join(tempDir, file)).mtime
+    }));
+    filesWithStats.sort((a, b) => b.mtime - a.mtime);
+    
+    const tempPath = filesWithStats[0].path;
+    
     const logoPath = path.join(logoDir, 'logo.png');
 
     // Переименовываем в logo.png
@@ -348,7 +367,13 @@ bot.on('photo', async (msg) => {
       fs.unlinkSync(logoPath);
     }
     fs.copyFileSync(tempPath, logoPath);
-    fs.unlinkSync(tempPath); // Удаляем временный файл
+    
+    // Удаляем временный файл
+    try {
+      fs.unlinkSync(tempPath);
+    } catch (cleanupErr) {
+      console.warn(`[${chatId}] Не удалось удалить временный файл:`, cleanupErr.message);
+    }
 
     bot.sendMessage(chatId, '✅ Логотип сохранен! Начинаю обработку архива...');
 
@@ -364,7 +389,20 @@ bot.on('photo', async (msg) => {
     processArchive(chatId, state.archiveFileId, state.archiveFileName, logoPath);
   } catch (err) {
     console.error(`[${chatId}] Error downloading logo:`, err);
-    bot.sendMessage(chatId, '❌ Ошибка при загрузке логотипа. Попробуйте еще раз.');
+    console.error(`[${chatId}] Error stack:`, err.stack);
+    
+    // Очищаем состояние при ошибке
+    chatStates.delete(chatId);
+    
+    bot.sendMessage(chatId, 
+      '❌ *Ошибка при загрузке логотипа*\n\n' +
+      `Причина: ${err.message}\n\n` +
+      '💡 *Попробуйте:*\n' +
+      '• Отправить изображение еще раз\n' +
+      '• Использовать другой формат (PNG, JPG)\n' +
+      '• Убедиться, что файл не поврежден',
+      { parse_mode: 'Markdown' }
+    );
   }
 });
 

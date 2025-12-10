@@ -6,20 +6,41 @@ import './_CartPage.scss'
 // Список доступных цен для округления (в порядке возрастания)
 const PRICE_TIERS = [2, 2.95, 3.95, 4.95, 5.95, 6.99, 7.95, 9.99, 11.90, 13.99, 14.95, 17.95, 19.99, 24.95, 29.99, 39.99, 49.99]
 
+// Маппинг цен к соответствующим ID
+const PRICE_TO_ID = {
+  2: 10,
+  2.95: 17,
+  3.95: 8,
+  4.95: 18,
+  5.95: 9,
+  6.99: 19,
+  7.95: 20,
+  9.99: 1,
+  11.90: 21,
+  13.99: 22,
+  14.95: 23,
+  17.95: 24,
+  19.99: 2,
+  24.95: 25,
+  29.99: 3,
+  39.99: 12,
+  49.99: 13
+}
+
 /**
- * Округляет сумму вниз до ближайшего значения из списка цен
+ * Округляет сумму вниз до ближайшего значения из списка цен и возвращает соответствующий ID
  * @param {number} amount - Сумма для округления
- * @returns {string} - Округленная сумма с двумя знаками после запятой
+ * @returns {number} - ID соответствующей цены
  */
-function roundDownToPriceTier(amount) {
+function getPriceTierId(amount) {
   // Находим ближайшее меньшее или равное значение
   for (let i = PRICE_TIERS.length - 1; i >= 0; i--) {
     if (amount >= PRICE_TIERS[i]) {
-      return PRICE_TIERS[i].toFixed(2)
+      return PRICE_TO_ID[PRICE_TIERS[i]]
     }
   }
-  // Если сумма меньше минимального значения, возвращаем минимальное
-  return PRICE_TIERS[0].toFixed(2)
+  // Если сумма меньше минимального значения, возвращаем ID минимального
+  return PRICE_TO_ID[PRICE_TIERS[0]]
 }
 
 function CartPage() {
@@ -69,10 +90,10 @@ function CartPage() {
 
   const handleCheckout = () => {
     const totalPrice = getTotalPrice()
-    // Округляем сумму вниз до ближайшего значения из списка цен
-    const roundedPrice = roundDownToPriceTier(totalPrice)
-    // Формируем ссылку: {offer}_сумма корзины
-    const checkoutUrl = offer ? `${offer}_${roundedPrice}` : `{offer}_${roundedPrice}`
+    // Округляем сумму вниз до ближайшего значения из списка цен и получаем соответствующий ID
+    const priceId = getPriceTierId(totalPrice)
+    // Формируем ссылку: {offer}_ID из таблицы
+    const checkoutUrl = offer ? `${offer}_${priceId}` : `{offer}_${priceId}`
     
     // Перенаправляем пользователя
     window.location.href = checkoutUrl
@@ -112,9 +133,6 @@ function CartPage() {
                     <img 
                       src={`img/products/${item.id}.webp`} 
                       alt={item.title}
-                      onError={(e) => {
-                        e.target.src = 'img/products/1.webp' // Fallback изображение
-                      }}
                     />
                   </div>
                   
