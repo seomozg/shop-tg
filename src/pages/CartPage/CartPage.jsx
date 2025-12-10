@@ -110,10 +110,10 @@ function CartPage() {
                 <div key={`${itemKey}-${index}`} className="cart-item">
                   <div className="cart-item__image">
                     <img 
-                      src={`/img/products/${item.id}.webp`} 
+                      src={`img/products/${item.id}.webp`} 
                       alt={item.title}
                       onError={(e) => {
-                        e.target.src = '/img/products/1.webp' // Fallback изображение
+                        e.target.src = 'img/products/1.webp' // Fallback изображение
                       }}
                     />
                   </div>

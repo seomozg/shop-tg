@@ -31,7 +31,7 @@ export async function loadProductImages(productId) {
   const images = []
   
   // Проверяем основное изображение
-  const mainImagePath = `/img/products/${productId}.webp`
+  const mainImagePath = `img/products/${productId}.webp`
   const mainExists = await checkImageExists(mainImagePath)
   
   if (!mainExists) {
@@ -47,7 +47,7 @@ export async function loadProductImages(productId) {
   const maxFailures = 2 // Останавливаемся после 2 подряд идущих отсутствующих файлов
   
   while (index <= 10) { // Ограничиваем до 10 дополнительных изображений
-    const imagePath = `/img/products/${productId}-${index}.webp`
+    const imagePath = `img/products/${productId}-${index}.webp`
     const exists = await checkImageExists(imagePath)
     
     if (exists) {

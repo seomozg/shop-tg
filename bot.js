@@ -467,11 +467,8 @@ bot.on('document', async (msg) => {
 
       archive.pipe(output);
 
-      // Архивируем содержимое dist, исключая .sh и .bat файлы
-      archive.glob('**/*', {
-        cwd: distPath,
-        ignore: ['**/*.sh', '**/*.bat']
-      });
+      // Архивируем саму папку dist целиком (с её именем)
+      archive.directory(distPath, 'dist');
 
       console.log(`[${chatId}] Finalizing archive...`);
       archive.finalize();

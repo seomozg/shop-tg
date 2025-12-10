@@ -7,16 +7,20 @@ export default defineConfig({
   publicDir: 'public',
   build: {
     outDir: 'dist',
-    assetsDir: '',
+    assetsDir: 'assets',
     rollupOptions: {
       output: {
-        entryFileNames: 'index.js',
-        chunkFileNames: 'index.js',
+        entryFileNames: 'js/index.js',
+        chunkFileNames: 'js/[name]-[hash].js',
         assetFileNames: (assetInfo) => {
-          if (assetInfo.name && assetInfo.name.endsWith('.css')) {
-            return 'index.css';
+          const ext = assetInfo.name?.split('.').pop();
+          if (ext === 'css') {
+            return 'css/[name]-[hash][extname]';
           }
-          return '[name].[ext]';
+          if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'ico'].includes(ext)) {
+            return 'img/[name]-[hash][extname]';
+          }
+          return 'assets/[name]-[hash][extname]';
         },
         manualChunks: () => 'index'
       }

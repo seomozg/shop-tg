@@ -2,7 +2,7 @@ import Papa from 'papaparse'
 
 export async function loadProducts() {
   try {
-    const csvUrl = '/products.csv';
+    const csvUrl = 'products.csv';
     
     console.log('🔍 Loading products from:', csvUrl);
     

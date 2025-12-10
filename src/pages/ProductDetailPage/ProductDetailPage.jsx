@@ -140,7 +140,7 @@ function ProductDetailPage() {
 								)}
 							</>
 						) : (
-							<img src={`/img/products/${product.id}.webp`} alt={product.title}/>
+							<img src={`img/products/${product.id}.webp`} alt={product.title}/>
 						)}
 					</div>
 

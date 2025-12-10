@@ -17,7 +17,7 @@ function ProductCard({ product, index }) {
     <Link to={`/product/${product.id - 1}`} className="product-card">
       <div className="product-card__img">
         <img 
-          src={`/img/products/${index}.webp`}
+          src={`img/products/${index}.webp`}
           alt={product.title}
           loading="lazy"
         />

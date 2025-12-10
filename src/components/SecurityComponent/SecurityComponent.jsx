@@ -49,11 +49,11 @@ function SecurityComponent() {
 								We are committed to your secure shopping experience. We offer safe and trusted payment options to protect your transactions. Your payment information is shared only with our certified payment service providers, who are dedicated to maintaining the confidentiality of your details.
 							</p>
 							<div className="security-item__images">
-								<img src="/img/security/1-1.svg" alt=""/>
-								<img src="/img/security/1-2.svg" alt=""/>
-								<img src="/img/security/1-3.svg" alt=""/>
-								<img src="/img/security/1-4.svg" alt=""/>
-								<img src="/img/security/1-5.svg" alt=""/>
+								<img src="img/security/1-1.svg" alt=""/>
+								<img src="img/security/1-2.svg" alt=""/>
+								<img src="img/security/1-3.svg" alt=""/>
+								<img src="img/security/1-4.svg" alt=""/>
+								<img src="img/security/1-5.svg" alt=""/>
 							</div>
 						</div>
 					)}
@@ -75,11 +75,11 @@ function SecurityComponent() {
 								Your privacy is our priority. We employ internationally recognized encryption methods for all network transmissions, ensuring the utmost security for your private data during your shopping journey. This includes the protection of your shipping address, credit card information, shopping details, and more. Shop with confidence, knowing your privacy is safeguarded with us.
 							</p>
 							<div className="security-item__images">
-								<img src="/img/security/2-1.webp" alt=""/>
-								<img src="/img/security/2-2.webp" alt=""/>
-								<img src="/img/security/2-3.webp" alt=""/>
-								<img src="/img/security/2-4.webp" alt=""/>
-								<img src="/img/security/2-5.webp" alt=""/>
+								<img src="img/security/2-1.webp" alt=""/>
+								<img src="img/security/2-2.webp" alt=""/>
+								<img src="img/security/2-3.webp" alt=""/>
+								<img src="img/security/2-4.webp" alt=""/>
+								<img src="img/security/2-5.webp" alt=""/>
 							</div>
 						</div>
 					)}
@@ -103,12 +103,12 @@ function SecurityComponent() {
 								We ensure secure and efficient logistics. Track your order in real-time right from the order page. For added security, consider our optional "Shipping Protection" service. If your purchase encounters any delays, damage, or loss during delivery, rest assured, our insurance will cover your losses.
 							</p>
 							<div className="security-item__images">
-								<img src="/img/security/3-1.webp" alt=""/>
-								<img src="/img/security/3-2.webp" alt=""/>
-								<img src="/img/security/3-3.webp" alt=""/>
-								<img src="/img/security/3-4.webp" alt=""/>
-								<img src="/img/security/3-5.webp" alt=""/>
-								<img src="/img/security/3-6.webp" alt=""/>
+								<img src="img/security/3-1.webp" alt=""/>
+								<img src="img/security/3-2.webp" alt=""/>
+								<img src="img/security/3-3.webp" alt=""/>
+								<img src="img/security/3-4.webp" alt=""/>
+								<img src="img/security/3-5.webp" alt=""/>
+								<img src="img/security/3-6.webp" alt=""/>
 							</div>
 						</div>
 					)}
