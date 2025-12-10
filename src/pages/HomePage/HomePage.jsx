@@ -14,14 +14,6 @@ function HomePage() {
 	const [searchParams] = useSearchParams()
 	const selectedCategory = searchParams.get('category')
 
-	// Проверяем существование баннера
-	useEffect(() => {
-		const img = new Image()
-		img.onload = () => setShowBanner(true)
-		img.onerror = () => setShowBanner(false)
-		img.src = '/img/banner.png'
-	}, [])
-
 	useEffect(() => {
 		async function fetchProducts() {
 			try {
@@ -87,7 +79,7 @@ function HomePage() {
 					<div className="container">
 						{showBanner && (
 							<img 
-								src="/img/banner.png" 
+								src="img/banner.png" 
 								alt="Banner" 
 								className="banner"
 								onError={() => setShowBanner(false)}

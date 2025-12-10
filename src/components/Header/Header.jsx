@@ -17,14 +17,6 @@ function Header() {
     }
   }, [cartItems.length])
 
-  // Проверяем существование логотипа
-  useEffect(() => {
-    const img = new Image()
-    img.onload = () => setShowLogo(true)
-    img.onerror = () => setShowLogo(false)
-    img.src = '/img/logo.png'
-  }, [])
-
   return (
     <div className="">
       <div className="header-banner">
@@ -33,16 +25,12 @@ function Header() {
       <header className="header">
         <div className="header-center">
           <Link to="/" className="logo">
-            {showLogo ? (
-              <img 
-                src="/img/logo.png" 
-                alt="shop" 
-                className="logo__image"
-                onError={() => setShowLogo(false)}
-              />
-            ) : (
-              'shop'
-            )}
+            <img 
+              src="img/logo.png" 
+              alt="shop" 
+              className="logo__image"
+              onError={() => setShowLogo(false)}
+            />
           </Link>
         </div>
         <div className="header-right">
