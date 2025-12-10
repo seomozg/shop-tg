@@ -76,49 +76,51 @@ function HomePage() {
 						</div>
 					</div>
 				) : (
-					<div className="container">
+					<>
 						{showBanner && (
-							<img 
-								src="img/banner.png" 
-								alt="Banner" 
+							<img
+								src="img/banner.png"
+								alt="Banner"
 								className="banner"
 								onError={() => setShowBanner(false)}
 							/>
 						)}
-						<div className="categories">
-							{categories.map((category) => {
-								const categoryProducts = products.filter(product => product.category === category)
-								const productsToShow = categoryProducts.slice(0, 8)
-								
-								return (
-									<div key={category} className="products">
-										<h1 className="products__title">{category.toUpperCase()}</h1>
-										{productsToShow.length === 0 ? (
-											<div className="no-products">no products</div>
-										) : (
-											<>
-												<div className="products__grid">
-												{productsToShow.map((product, index) => (
-													<ProductCard key={`${category}-${product.id}-${index}`} product={product} />
-												))}
-												</div>
-												{categoryProducts.length > 8 && (
-													<div className="products__view-more">
-														<Link 
-															to={`/?category=${encodeURIComponent(category)}`}
-															className="products__view-more-btn"
-														>
-															View more
-														</Link>
+						<div className="container">
+							<div className="categories">
+								{categories.map((category) => {
+									const categoryProducts = products.filter(product => product.category === category)
+									const productsToShow = categoryProducts.slice(0, 8)
+
+									return (
+										<div key={category} className="products">
+											<h1 className="products__title">{category.toUpperCase()}</h1>
+											{productsToShow.length === 0 ? (
+												<div className="no-products">no products</div>
+											) : (
+												<>
+													<div className="products__grid">
+													{productsToShow.map((product, index) => (
+														<ProductCard key={`${category}-${product.id}-${index}`} product={product} />
+													))}
 													</div>
-												)}
-											</>
-										)}
-									</div>
-								)
-							})}
+													{categoryProducts.length > 8 && (
+														<div className="products__view-more">
+															<Link
+																to={`/?category=${encodeURIComponent(category)}`}
+																className="products__view-more-btn"
+															>
+																View more
+															</Link>
+														</div>
+													)}
+												</>
+											)}
+										</div>
+									)
+								})}
+							</div>
 						</div>
-					</div>
+					</>
 				)}
 		</>
 	)
