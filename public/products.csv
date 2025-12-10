@@ -1,9 +1,9 @@
-id,title,description,category,old-price,new-price
-1,OHS Bow Print Button Through Pyjama Set - Hot Pink,1,new arrival,"39,99","9,99"
-2,Spending The Holidays Together PJ Pant Set - Red/combo,2,new arrival,"67,24","3,99"
-3,Christmas Print Fleece Hoodie Pyjama Set - Beige,3,new arrival,"117,97","3,99"
-4,Candy Cane Dreams PJ Pant Set - Pink/combo,4,new arrival,"39,99","9,99"
-5,"[Plus Size] Three-Piece Set Floral Print Belted Lounge Robe & Cami Top & Elastic Waist Pants Pyjama Set, Elegant Comfy Drop Shoulder Long Sleeve Robe & Sleeveless Top & Bow Decor Trousers PJ Set, Women's Sleepwear for Spring & Fall",5,new arrival,"67,24","3,99"
-6,Women's Sexy One Shoulder Satin High Split Cocktail Fit Wedding Party Maxi Formal Dress,6,Best Seller,"117,97","3,99"
-7,3/4 Sleeve V Neck Ruched Ombre Wedding Guest Maxi Dresses-Green,7,Best Seller,"39,99","9,99"
-8,One Shoulder Pleated Wedding Guest Party Maxi Dresses-Beige,8,Best Seller,"67,24","3,99"
+id,title,description,category,old-price,new-price,selection,selection-options
+1,OHS Bow Print Button Through Pyjama Set - Hot Pink,1,new arrival,"39,99","9,99",Sizes,"xs,s,m,l,xl,xxl"
+2,Spending The Holidays Together PJ Pant Set - Red/combo,2,new arrival,"67,24","3,99",Sizes,"xs,s,m,l,xl,xxl"
+3,Christmas Print Fleece Hoodie Pyjama Set - Beige,3,new arrival,"117,97","3,99",Sizes,"xs,s,m,l,xl,xxl"
+4,Candy Cane Dreams PJ Pant Set - Pink/combo,4,new arrival,"39,99","9,99",Sizes,"xs,s,m,l,xl,xxl"
+5,"[Plus Size] Three-Piece Set Floral Print Belted Lounge Robe & Cami Top & Elastic Waist Pants Pyjama Set, Elegant Comfy Drop Shoulder Long Sleeve Robe & Sleeveless Top & Bow Decor Trousers PJ Set, Women's Sleepwear for Spring & Fall",5,new arrival,"67,24","3,99",Sizes,"xs,s,m,l,xl,xxl"
+6,Women's Sexy One Shoulder Satin High Split Cocktail Fit Wedding Party Maxi Formal Dress,6,Best Seller,"117,97","3,99",Sizes,"xs,s,m,l,xl,xxl"
+7,3/4 Sleeve V Neck Ruched Ombre Wedding Guest Maxi Dresses-Green,7,Best Seller,"39,99","9,99",Sizes,"xs,s,m,l,xl,xxl"
+8,One Shoulder Pleated Wedding Guest Party Maxi Dresses-Beige,8,Best Seller,"67,24","3,99",Sizes,"xs,s,m,l,xl,xxl"

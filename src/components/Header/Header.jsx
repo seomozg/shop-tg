@@ -17,6 +17,14 @@ function Header() {
     }
   }, [cartItems.length])
 
+  // Проверяем существование логотипа
+  useEffect(() => {
+    const img = new Image()
+    img.onload = () => setShowLogo(true)
+    img.onerror = () => setShowLogo(false)
+    img.src = '/img/logo.png'
+  }, [])
+
   return (
     <div className="">
       <div className="header-banner">

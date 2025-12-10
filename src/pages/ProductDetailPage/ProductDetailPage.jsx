@@ -18,7 +18,7 @@ function ProductDetailPage() {
 	const [product, setProduct] = useState(null)
 	const [loading, setLoading] = useState(true)
 	const [images, setImages] = useState([])
-	const [selectedSize, setSelectedSize] = useState('M')
+	const [selectedOption, setSelectedOption] = useState('')
 	const [showToast, setShowToast] = useState(false)
 	const [thumbsSwiper, setThumbsSwiper] = useState(null)
 	const [mainSwiper, setMainSwiper] = useState(null)
@@ -41,6 +41,13 @@ function ProductDetailPage() {
 				}
 				
 				setProduct(foundProduct || null)
+				
+				// Устанавливаем первый вариант по умолчанию, если есть
+				if (foundProduct && foundProduct.selectionOptions && foundProduct.selectionOptions.length > 0) {
+					setSelectedOption(foundProduct.selectionOptions[0])
+				} else {
+					setSelectedOption('')
+				}
 				
 				// Загружаем изображения продукта
 				if (foundProduct) {
@@ -174,66 +181,35 @@ function ProductDetailPage() {
 							<p>{product.description}</p>
 						</div>
 
-						<div className="product-detail__block">
-							<h3>Sizes:</h3>
-							<ul className="list-row">
-								<li>
-									<button 
-										className={selectedSize === 'XS' ? 'active' : ''}
-										onClick={() => setSelectedSize('XS')}
-									>
-										XS
-									</button>
-								</li>
-								<li>
-									<button 
-										className={selectedSize === 'S' ? 'active' : ''}
-										onClick={() => setSelectedSize('S')}
-									>
-										S
-									</button>
-								</li>
-								<li>
-									<button 
-										className={selectedSize === 'M' ? 'active' : ''}
-										onClick={() => setSelectedSize('M')}
-									>
-										M
-									</button>
-								</li>
-								<li>
-									<button 
-										className={selectedSize === 'L' ? 'active' : ''}
-										onClick={() => setSelectedSize('L')}
-									>
-										L
-									</button>
-								</li>
-								<li>
-									<button 
-										className={selectedSize === 'XL' ? 'active' : ''}
-										onClick={() => setSelectedSize('XL')}
-									>
-										XL
-									</button>
-								</li>
-								<li>
-									<button 
-										className={selectedSize === 'XXL' ? 'active' : ''}
-										onClick={() => setSelectedSize('XXL')}
-									>
-										XXL
-									</button>
-								</li>
-							</ul>
-						</div>
+						{product.selection && product.selectionOptions && product.selectionOptions.length > 0 && (
+							<div className="product-detail__block">
+								<h3>{product.selection}:</h3>
+								<ul className="list-row">
+									{product.selectionOptions.map((option, index) => (
+										<li key={index}>
+											<button 
+												className={selectedOption === option ? 'active' : ''}
+												onClick={() => setSelectedOption(option)}
+											>
+												{option.toUpperCase()}
+											</button>
+										</li>
+									))}
+								</ul>
+							</div>
+						)}
 
 						<div className="product-detail__actions">
 							<button 
 								className="add-to-cart-btn"
 								onClick={() => {
 									if (product) {
-										addToCart({ ...product, size: selectedSize })
+										// Используем selection как ключ для выбранного варианта
+										const cartItem = {
+											...product,
+											size: selectedOption || (product.selectionOptions && product.selectionOptions[0]) || 'M'
+										}
+										addToCart(cartItem)
 										setShowToast(true)
 									}
 								}}

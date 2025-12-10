@@ -58,6 +58,13 @@ export async function loadProducts() {
             const category = product.category || product.Category || ''
             const oldPrice = product["old-price"] || product["old_price"] || product["Old-Price"] || ''
             const newPrice = product["new-price"] || product["new_price"] || product["New-Price"] || ''
+            const selection = product.selection || product.Selection || ''
+            const selectionOptions = product["selection-options"] || product["selection_options"] || product["Selection-Options"] || ''
+            
+            // Парсим варианты выбора (разделенные запятыми)
+            const options = selectionOptions 
+              ? selectionOptions.split(',').map(opt => opt.trim()).filter(opt => opt)
+              : []
             
             return {
               id: productId,
@@ -66,6 +73,8 @@ export async function loadProducts() {
               category: category,
               oldPrice: oldPrice,
               newPrice: newPrice,
+              selection: selection,
+              selectionOptions: options,
             }
           })
           resolve(products)
