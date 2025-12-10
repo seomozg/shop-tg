@@ -7,6 +7,7 @@ function Header() {
   const { getTotalItems, cartItems } = useCart()
   const totalItems = getTotalItems()
   const [isAnimating, setIsAnimating] = useState(false)
+  const [showLogo, setShowLogo] = useState(true)
 
   useEffect(() => {
     if (cartItems.length > 0) {
@@ -23,7 +24,18 @@ function Header() {
       </div>
       <header className="header">
         <div className="header-center">
-          <Link to="/" className="logo">shop</Link>
+          <Link to="/" className="logo">
+            {showLogo ? (
+              <img 
+                src="/img/logo.png" 
+                alt="shop" 
+                className="logo__image"
+                onError={() => setShowLogo(false)}
+              />
+            ) : (
+              'shop'
+            )}
+          </Link>
         </div>
         <div className="header-right">
           <Link to="/cart" className={`icon-button cart-button ${isAnimating ? 'cart-button--animate' : ''}`}>

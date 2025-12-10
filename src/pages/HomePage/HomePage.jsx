@@ -10,6 +10,7 @@ function HomePage() {
 	const [products, setProducts] = useState([])
 	const [categories, setCategories] = useState([])
 	const [loading, setLoading] = useState(true)
+	const [showBanner, setShowBanner] = useState(true)
 	const [searchParams] = useSearchParams()
 	const selectedCategory = searchParams.get('category')
 
@@ -56,59 +57,69 @@ function HomePage() {
 		<>
 			{categories.length > 0 && <Navigation categoriesList={categories}/>}
 
-			<div className="container">
-				{products.length === 0 ? (
+			{products.length === 0 ? (
 					<div className="no-products">no products</div>
 				) : selectedCategory ? (
 					// Показываем все товары выбранной категории
-					<div className="products">
-						<h1 className="products__title">{selectedCategory.toUpperCase()}</h1>
-						{filteredProducts.length === 0 ? (
-							<div className="no-products">no products</div>
-						) : (
-							<div className="products__grid">
-								{filteredProducts.map((product, index) => (
-									<ProductCard key={`${selectedCategory}-${product.id}-${index}`} product={product} />
-								))}
-							</div>
-						)}
+					<div className="container">
+						<div className="products">
+							<h1 className="products__title">{selectedCategory.toUpperCase()}</h1>
+							{filteredProducts.length === 0 ? (
+								<div className="no-products">no products</div>
+							) : (
+								<div className="products__grid">
+									{filteredProducts.map((product, index) => (
+										<ProductCard key={`${selectedCategory}-${product.id}-${index}`} product={product} />
+									))}
+								</div>
+							)}
+						</div>
 					</div>
 				) : (
-					<div className="categories">
-						{categories.map((category) => {
-							const categoryProducts = products.filter(product => product.category === category)
-							const productsToShow = categoryProducts.slice(0, 8)
-							
-							return (
-								<div key={category} className="products">
-									<h1 className="products__title">{category.toUpperCase()}</h1>
-									{productsToShow.length === 0 ? (
-										<div className="no-products">no products</div>
-									) : (
-										<>
-											<div className="products__grid">
-											{productsToShow.map((product, index) => (
-												<ProductCard key={`${category}-${product.id}-${index}`} product={product} />
-											))}
-											</div>
-											{categoryProducts.length > 8 && (
-												<div className="products__view-more">
-													<Link 
-														to={`/?category=${encodeURIComponent(category)}`}
-														className="products__view-more-btn"
-													>
-														View more
-													</Link>
+					<div className="container">
+						{showBanner && (
+							<img 
+								src="/img/banner.png" 
+								alt="Banner" 
+								className="banner"
+								onError={() => setShowBanner(false)}
+							/>
+						)}
+						<div className="categories">
+							{categories.map((category) => {
+								const categoryProducts = products.filter(product => product.category === category)
+								const productsToShow = categoryProducts.slice(0, 8)
+								
+								return (
+									<div key={category} className="products">
+										<h1 className="products__title">{category.toUpperCase()}</h1>
+										{productsToShow.length === 0 ? (
+											<div className="no-products">no products</div>
+										) : (
+											<>
+												<div className="products__grid">
+												{productsToShow.map((product, index) => (
+													<ProductCard key={`${category}-${product.id}-${index}`} product={product} />
+												))}
 												</div>
-											)}
-										</>
-									)}
-								</div>
-							)
-						})}
+												{categoryProducts.length > 8 && (
+													<div className="products__view-more">
+														<Link 
+															to={`/?category=${encodeURIComponent(category)}`}
+															className="products__view-more-btn"
+														>
+															View more
+														</Link>
+													</div>
+												)}
+											</>
+										)}
+									</div>
+								)
+							})}
+						</div>
 					</div>
 				)}
-			</div>
 		</>
 	)
 }
