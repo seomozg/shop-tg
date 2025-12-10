@@ -68,18 +68,6 @@ function ProductDetailPage() {
 		fetchProduct()
 	}, [id])
 
-	// Обновляем selectedOption при изменении продукта
-	useEffect(() => {
-		if (product && product.selectionOptions && product.selectionOptions.length > 0) {
-			// Устанавливаем первый вариант, если selectedOption пустой или не соответствует доступным вариантам
-			if (!selectedOption || !product.selectionOptions.includes(selectedOption)) {
-				setSelectedOption(product.selectionOptions[0])
-			}
-		} else {
-			setSelectedOption('')
-		}
-	}, [product])
-
 	// Обновляем навигацию после монтирования кнопок
 	useEffect(() => {
 		if (mainSwiper && prevRef.current && nextRef.current && mainSwiper.navigation) {
@@ -215,32 +203,10 @@ function ProductDetailPage() {
 							<button 
 								className="add-to-cart-btn"
 								onClick={() => {
-									try {
-										if (!product) {
-											console.error('Product is not available')
-											return
-										}
-										
-										// Определяем выбранный вариант
-										let finalSize = selectedOption
-										if (!finalSize && product.selectionOptions && product.selectionOptions.length > 0) {
-											finalSize = product.selectionOptions[0]
-										}
-										if (!finalSize) {
-											finalSize = 'M'
-										}
-										
-										// Используем selection как ключ для выбранного варианта
-										const cartItem = {
-											...product,
-											size: finalSize
-										}
-										
-										console.log('Adding to cart:', cartItem)
-										addToCart(cartItem)
+									if (product) {
+										const size = selectedOption || (product.selectionOptions && product.selectionOptions[0]) || 'M'
+										addToCart({ ...product, size })
 										setShowToast(true)
-									} catch (error) {
-										console.error('Error adding to cart:', error)
 									}
 								}}
 							>
