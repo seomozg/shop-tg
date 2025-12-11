@@ -48,6 +48,7 @@ bot.setMyCommands([
   { command: 'start', description: 'Начать работу с ботом' },
   { command: 'help', description: 'Показать инструкцию' },
   { command: 'status', description: 'Показать статус бота' },
+  { command: 'history', description: 'Показать историю сообщений (последние 10)' },
   { command: 'getfile', description: 'Получить последний dist.zip' },
   { command: 'debug', description: 'Диагностика проблем' }
 ]).catch(err => {
@@ -153,9 +154,9 @@ async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
     console.log(`[${chatId}] Preparing to send file: ${filePath}`);
     console.log(`[${chatId}] File size: ${fileSizeMB} MB`);
 
-    // Если файл больше 3 MB, разбиваем на части по 3 MB
-    // Если меньше 3 MB, все равно разбиваем на части для надежности
-    const chunkSizeMB = parseFloat(fileSizeMB) > 3 ? 3 : Math.max(1, parseFloat(fileSizeMB) / 2);
+    // Разбиваем на части по 2 MB для надежности (безопасный размер для Telegram)
+    // Telegram может отклонять файлы даже меньше 50 MB, если они слишком большие для одного запроса
+    const chunkSizeMB = 2; // Используем 2 MB для максимальной надежности
     const chunks = await splitFile(filePath, chunkSizeMB);
 
     console.log(`[${chatId}] File split into ${chunks.length} chunks`);
@@ -171,7 +172,7 @@ async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
           '📋 Следующие шаги:\n' +
           '1️⃣ Распакуйте dist.zip\n' +
           '2️⃣ Загрузите содержимое в public_html\n' +
-          '3️⃣ Проверьте наличие .htaccess\n\n`,
+          '3️⃣ Проверьте наличие .htaccess\n\n',
         disable_notification: false
       });
     }
@@ -197,31 +198,109 @@ async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
       );
 
       try {
-        await bot.sendDocument(chatId, chunkPath, {
-          caption:
-            `📦 Часть ${chunkNumber} из ${chunks.length} (${chunkSizeMB} MB)\n` +
-            `Файл: ${path.basename(chunkPath)}\n\n` +
-            (chunkNumber === chunks.length
-              ? '✅ Все части отправлены!\n\n' +
-                '📋 *Как объединить части:*\n' +
-                '1️⃣ Скачайте все части на компьютер\n' +
-                '2️⃣ Объедините их командой:\n' +
-                '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
-                '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
-                '3️⃣ Распакуйте dist.zip\n' +
-                '4️⃣ Загрузите содержимое в public_html'
-              : ''),
-          disable_notification: false,
-          parse_mode: 'Markdown'
-        });
+        // Проверяем размер части перед отправкой
+        const chunkStats = fs.statSync(chunkPath);
+        const chunkSizeBytes = chunkStats.size;
+        const chunkSizeMBActual = (chunkSizeBytes / 1024 / 1024).toFixed(2);
+        
+        // Если часть все еще слишком большая (> 2.5 MB), разбиваем еще раз
+        if (chunkSizeBytes > 2.5 * 1024 * 1024) {
+          console.log(`[${chatId}] Chunk ${chunkNumber} is still too large (${chunkSizeMBActual} MB), splitting further...`);
+          const subChunks = await splitFile(chunkPath, 1.5); // Разбиваем на части по 1.5 MB
+          
+          for (let j = 0; j < subChunks.length; j++) {
+            const subChunkPath = subChunks[j];
+            const subChunkStats = fs.statSync(subChunkPath);
+            const subChunkSizeMB = (subChunkStats.size / 1024 / 1024).toFixed(2);
+            
+            await bot.sendDocument(chatId, subChunkPath, {
+              caption:
+                `📦 Часть ${chunkNumber}.${j + 1} из ${chunks.length} (${subChunkSizeMB} MB)\n` +
+                `Файл: ${path.basename(subChunkPath)}\n\n` +
+                (chunkNumber === chunks.length && j === subChunks.length - 1
+                  ? '✅ Все части отправлены!\n\n' +
+                    '📋 *Как объединить части:*\n' +
+                    '1️⃣ Скачайте все части на компьютер\n' +
+                    '2️⃣ Объедините их командой:\n' +
+                    '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
+                    '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
+                    '3️⃣ Распакуйте dist.zip\n' +
+                    '4️⃣ Загрузите содержимое в public_html'
+                  : ''),
+              disable_notification: false,
+              parse_mode: 'Markdown'
+            });
+            
+            // Удаляем временный подфайл после отправки
+            if (subChunkPath !== chunkPath && fs.existsSync(subChunkPath)) {
+              fs.unlinkSync(subChunkPath);
+            }
+            
+            // Задержка между отправками
+            if (j < subChunks.length - 1 || i < chunks.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+          }
+          
+          // Удаляем оригинальную часть, если она была разбита
+          if (subChunks.length > 1 && fs.existsSync(chunkPath)) {
+            fs.unlinkSync(chunkPath);
+          }
+        } else {
+          await bot.sendDocument(chatId, chunkPath, {
+            caption:
+              `📦 Часть ${chunkNumber} из ${chunks.length} (${chunkSizeMBActual} MB)\n` +
+              `Файл: ${path.basename(chunkPath)}\n\n` +
+              (chunkNumber === chunks.length
+                ? '✅ Все части отправлены!\n\n' +
+                  '📋 *Как объединить части:*\n' +
+                  '1️⃣ Скачайте все части на компьютер\n' +
+                  '2️⃣ Объедините их командой:\n' +
+                  '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
+                  '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
+                  '3️⃣ Распакуйте dist.zip\n' +
+                  '4️⃣ Загрузите содержимое в public_html'
+                : ''),
+            disable_notification: false,
+            parse_mode: 'Markdown'
+          });
 
-        // Задержка между отправками
-        if (i < chunks.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Задержка между отправками
+          if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
         }
       } catch (err) {
         console.error(`[${chatId}] Error sending chunk ${chunkNumber}:`, err);
-        throw err;
+        
+        // Если ошибка "file is too big", пытаемся разбить еще больше
+        if (err.message && err.message.includes('file is too big')) {
+          console.log(`[${chatId}] Chunk ${chunkNumber} rejected as too big, trying to split into smaller parts...`);
+          try {
+            const smallerChunks = await splitFile(chunkPath, 1); // Разбиваем на части по 1 MB
+            for (let j = 0; j < smallerChunks.length; j++) {
+              const smallChunkPath = smallerChunks[j];
+              await bot.sendDocument(chatId, smallChunkPath, {
+                caption: `📦 Часть ${chunkNumber}.${j + 1} (${(fs.statSync(smallChunkPath).size / 1024 / 1024).toFixed(2)} MB)`,
+                disable_notification: false
+              });
+              if (smallChunkPath !== chunkPath && fs.existsSync(smallChunkPath)) {
+                fs.unlinkSync(smallChunkPath);
+              }
+              if (j < smallerChunks.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1500));
+              }
+            }
+            if (smallerChunks.length > 1 && fs.existsSync(chunkPath)) {
+              fs.unlinkSync(chunkPath);
+            }
+          } catch (retryErr) {
+            console.error(`[${chatId}] Failed to send even smaller chunks:`, retryErr);
+            throw err; // Выбрасываем оригинальную ошибку
+          }
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -278,6 +357,7 @@ bot.onText(/\/help/, (msg) => {
     '/start - Начать работу\n' +
     '/help - Показать эту инструкцию\n' +
     '/status - Статус бота\n' +
+    '/history - История сообщений (последние 10)\n' +
     '/getfile - Получить последний dist.zip\n' +
     '/debug - Диагностика проблем',
     { parse_mode: 'Markdown' }
@@ -301,6 +381,53 @@ bot.onText(/\/status/, (msg) => {
     `👋 Имя: ${msg.from.first_name}`,
     { parse_mode: 'Markdown' }
   );
+});
+
+// Команда /history - показать историю сообщений
+bot.onText(/\/history/, (msg) => {
+  const chatId = msg.chat.id;
+  saveMessage(chatId, msg);
+
+  const userMessages = chatMessages.get(chatId) || [];
+  const messageCount = userMessages.length;
+
+  if (messageCount === 0) {
+    return bot.sendMessage(chatId,
+      '📜 *История сообщений*\n\n' +
+      'История пуста. Отправьте сообщение или команду, чтобы начать историю.',
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  // Формируем список сообщений (последние 10)
+  let historyText = `📜 *История сообщений (последние ${messageCount} из 10)*\n\n`;
+  
+  // Функция для экранирования спецсимволов Markdown
+  const escapeMarkdown = (text) => {
+    return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+  };
+  
+  userMessages.forEach((msgData, index) => {
+    const time = msgData.date.toLocaleString('ru-RU', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit'
+    });
+    const text = msgData.text.length > 50 
+      ? msgData.text.substring(0, 50) + '...' 
+      : msgData.text;
+    
+    const safeText = escapeMarkdown(text);
+    const safeFrom = escapeMarkdown(msgData.from);
+    
+    historyText += `${index + 1}. *${time}* - ${safeFrom}\n`;
+    historyText += `   \`${safeText}\`\n\n`;
+  });
+
+  historyText += '💡 История хранит только последние 10 сообщений';
+
+  bot.sendMessage(chatId, historyText, { parse_mode: 'Markdown' });
 });
 
 // Команда /getfile - получить последний dist.zip (с учётом лимита Telegram и разбиением)
@@ -463,18 +590,42 @@ async function processArchive(chatId, fileId, fileName) {
 
     const buildStartTime = Date.now();
 
-    exec('npm run build', (error, stdout, stderr) => {
+    // Увеличиваем лимит памяти для процесса сборки (4 GB)
+    // Это помогает избежать ошибки "Killed" (код 137) из-за нехватки памяти
+    const buildCommand = process.platform === 'win32' 
+      ? 'set NODE_OPTIONS=--max-old-space-size=4096 && npm run build'
+      : 'NODE_OPTIONS=--max-old-space-size=4096 npm run build';
+
+    exec(buildCommand, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       console.log(stdout);
       console.error(stderr);
 
       if (error) {
         console.error(`[${chatId}] Build error:`, error);
+        
+        // Специальная обработка ошибки нехватки памяти (код 137)
+        let errorMessage = error.message;
+        let suggestions = '💡 *Возможные причины:*\n';
+        
+        if (error.code === 137 || error.signal === 'SIGKILL' || error.killed) {
+          errorMessage = 'Процесс сборки был прерван из-за нехватки памяти (OOM)';
+          suggestions += 
+            '• ⚠️ Недостаточно памяти на сервере\n' +
+            '• Попробуйте уменьшить размер изображений\n' +
+            '• Используйте формат .webp вместо .png/.jpg\n' +
+            '• Уменьшите количество файлов в архиве\n' +
+            '• Обратитесь к администратору для увеличения памяти сервера';
+        } else {
+          suggestions += 
+            '• Отсутствуют зависимости (npm install)\n' +
+            '• Ошибка в файлах проекта\n' +
+            '• Недостаточно памяти\n' +
+            '• Проверьте логи выше для деталей';
+        }
+        
         return bot.sendMessage(chatId,
-          `❌ *Ошибка сборки:*\n\n\`\`\`\n${error.message}\n\`\`\`\n\n` +
-          '💡 Возможные причины:\n' +
-          '• Отсутствуют зависимости (npm install)\n' +
-          '• Ошибка в файлах проекта\n' +
-          '• Недостаточно памяти',
+          `❌ *Ошибка сборки:*\n\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+          suggestions,
           { parse_mode: 'Markdown' }
         );
       }
@@ -729,7 +880,8 @@ bot.on('message', (msg) => {
       '📝 Используйте:\n' +
       '/start - Начать работу\n' +
       '/help - Инструкция\n' +
-      '/status - Статус бота\n\n' +
+      '/status - Статус бота\n' +
+      '/history - История сообщений\n\n' +
       '📦 Или просто отправьте ZIP-архив'
     );
   }
