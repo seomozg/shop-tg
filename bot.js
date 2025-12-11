@@ -73,240 +73,28 @@ const cleanDirectory = (directory) => {
   fs.mkdirSync(directory, { recursive: true });
 };
 
-// Функция для разбиения файла на части (по умолчанию 20 MB, но мы передаём своё значение)
-async function splitFile(filePath, chunkSizeMB = 20) {
-  const chunkSize = chunkSizeMB * 1024 * 1024; // Размер части в байтах
-  const fileStats = fs.statSync(filePath);
-  const fileSize = fileStats.size;
-
-  if (fileSize <= chunkSize) {
-    return [filePath]; // Файл не нужно разбивать
-  }
-
-  const baseName = path.basename(filePath, path.extname(filePath));
-  const ext = path.extname(filePath);
-  const dir = path.dirname(filePath);
-  const chunks = [];
-
-  return new Promise((resolve, reject) => {
-    const fileStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
-    let chunkIndex = 0;
-    let currentChunk = Buffer.alloc(0);
-    let writePromises = [];
-
-    fileStream.on('data', (data) => {
-      currentChunk = Buffer.concat([currentChunk, data]);
-
-      while (currentChunk.length >= chunkSize) {
-        const chunkData = currentChunk.slice(0, chunkSize);
-        currentChunk = currentChunk.slice(chunkSize);
-
-        const chunkPath = path.join(dir, `${baseName}.part${String(chunkIndex + 1).padStart(3, '0')}${ext}`);
-        chunks.push(chunkPath);
-
-        const writePromise = new Promise((writeResolve, writeReject) => {
-          const writeStream = fs.createWriteStream(chunkPath);
-          writeStream.write(chunkData);
-          writeStream.end();
-          writeStream.on('finish', writeResolve);
-          writeStream.on('error', writeReject);
-        });
-
-        writePromises.push(writePromise);
-        chunkIndex++;
-      }
-    });
-
-    fileStream.on('end', async () => {
-      if (currentChunk.length > 0) {
-        const chunkPath = path.join(dir, `${baseName}.part${String(chunkIndex + 1).padStart(3, '0')}${ext}`);
-        chunks.push(chunkPath);
-
-        const lastWritePromise = new Promise((writeResolve, writeReject) => {
-          const writeStream = fs.createWriteStream(chunkPath);
-          writeStream.write(currentChunk);
-          writeStream.end();
-          writeStream.on('finish', writeResolve);
-          writeStream.on('error', writeReject);
-        });
-
-        writePromises.push(lastWritePromise);
-      }
-
-      try {
-        await Promise.all(writePromises);
-        resolve(chunks);
-      } catch (err) {
-        reject(err);
-      }
-    });
-
-    fileStream.on('error', reject);
-  });
-}
-
-// Функция для отправки файла по частям
-async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
+// Функция для отправки файла
+async function sendFile(chatId, filePath, totalSizeMB, totalTime) {
   try {
     const fileStats = fs.statSync(filePath);
     const fileSizeMB = (fileStats.size / 1024 / 1024).toFixed(2);
 
-    console.log(`[${chatId}] Preparing to send file: ${filePath}`);
+    console.log(`[${chatId}] Sending file: ${filePath}`);
     console.log(`[${chatId}] File size: ${fileSizeMB} MB`);
 
-    // Разбиваем на части по 2 MB для надежности (безопасный размер для Telegram)
-    // Telegram может отклонять файлы даже меньше 50 MB, если они слишком большие для одного запроса
-    const chunkSizeMB = 2; // Используем 2 MB для максимальной надежности
-    const chunks = await splitFile(filePath, chunkSizeMB);
-
-    console.log(`[${chatId}] File split into ${chunks.length} chunks`);
-
-    if (chunks.length === 1 && parseFloat(fileSizeMB) <= 2) {
-      // Только очень маленькие файлы (< 2 MB) отправляем целиком
-      console.log(`[${chatId}] Sending file as single chunk (${fileSizeMB} MB)`);
-      return bot.sendDocument(chatId, filePath, {
-        caption:
-          '🎉 Сборка завершена!\n\n' +
-          `📦 Размер архива: ${totalSizeMB} MB\n` +
-          `⏱ Время обработки: ${totalTime}с\n\n` +
-          '📋 Следующие шаги:\n' +
-          '1️⃣ Распакуйте dist.zip\n' +
-          '2️⃣ Загрузите содержимое в public_html\n' +
-          '3️⃣ Проверьте наличие .htaccess\n\n',
-        disable_notification: false
-      });
-    }
-
-    // Отправляем информацию о разбиении
-    await bot.sendMessage(chatId,
-      `📦 *Архив разбит на ${chunks.length} частей*\n\n` +
-      `📊 Общий размер: ${totalSizeMB} MB\n` +
-      `⏱ Время обработки: ${totalTime}с\n\n` +
-      `📤 Отправляю части...`,
-      { parse_mode: 'Markdown' }
-    );
-
-    // Отправляем каждую часть
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkPath = chunks[i];
-      const chunkNumber = i + 1;
-      const chunkStats = fs.statSync(chunkPath);
-      const chunkSizeMB = (chunkStats.size / 1024 / 1024).toFixed(2);
-
-      console.log(
-        `[${chatId}] Sending chunk ${chunkNumber}/${chunks.length}: ${path.basename(chunkPath)} (${chunkSizeMB} MB)`
-      );
-
-      try {
-        // Проверяем размер части перед отправкой
-        const chunkStats = fs.statSync(chunkPath);
-        const chunkSizeBytes = chunkStats.size;
-        const chunkSizeMBActual = (chunkSizeBytes / 1024 / 1024).toFixed(2);
-        
-        // Если часть все еще слишком большая (> 2.5 MB), разбиваем еще раз
-        if (chunkSizeBytes > 2.5 * 1024 * 1024) {
-          console.log(`[${chatId}] Chunk ${chunkNumber} is still too large (${chunkSizeMBActual} MB), splitting further...`);
-          const subChunks = await splitFile(chunkPath, 1.5); // Разбиваем на части по 1.5 MB
-          
-          for (let j = 0; j < subChunks.length; j++) {
-            const subChunkPath = subChunks[j];
-            const subChunkStats = fs.statSync(subChunkPath);
-            const subChunkSizeMB = (subChunkStats.size / 1024 / 1024).toFixed(2);
-            
-            await bot.sendDocument(chatId, subChunkPath, {
-              caption:
-                `📦 Часть ${chunkNumber}.${j + 1} из ${chunks.length} (${subChunkSizeMB} MB)\n` +
-                `Файл: ${path.basename(subChunkPath)}\n\n` +
-                (chunkNumber === chunks.length && j === subChunks.length - 1
-                  ? '✅ Все части отправлены!\n\n' +
-                    '📋 *Как объединить части:*\n' +
-                    '1️⃣ Скачайте все части на компьютер\n' +
-                    '2️⃣ Объедините их командой:\n' +
-                    '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
-                    '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
-                    '3️⃣ Распакуйте dist.zip\n' +
-                    '4️⃣ Загрузите содержимое в public_html'
-                  : ''),
-              disable_notification: false,
-              parse_mode: 'Markdown'
-            });
-            
-            // Удаляем временный подфайл после отправки
-            if (subChunkPath !== chunkPath && fs.existsSync(subChunkPath)) {
-              fs.unlinkSync(subChunkPath);
-            }
-            
-            // Задержка между отправками
-            if (j < subChunks.length - 1 || i < chunks.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-          }
-          
-          // Удаляем оригинальную часть, если она была разбита
-          if (subChunks.length > 1 && fs.existsSync(chunkPath)) {
-            fs.unlinkSync(chunkPath);
-          }
-        } else {
-          await bot.sendDocument(chatId, chunkPath, {
-            caption:
-              `📦 Часть ${chunkNumber} из ${chunks.length} (${chunkSizeMBActual} MB)\n` +
-              `Файл: ${path.basename(chunkPath)}\n\n` +
-              (chunkNumber === chunks.length
-                ? '✅ Все части отправлены!\n\n' +
-                  '📋 *Как объединить части:*\n' +
-                  '1️⃣ Скачайте все части на компьютер\n' +
-                  '2️⃣ Объедините их командой:\n' +
-                  '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
-                  '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
-                  '3️⃣ Распакуйте dist.zip\n' +
-                  '4️⃣ Загрузите содержимое в public_html'
-                : ''),
-            disable_notification: false,
-            parse_mode: 'Markdown'
-          });
-
-          // Задержка между отправками
-          if (i < chunks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-          }
-        }
-      } catch (err) {
-        console.error(`[${chatId}] Error sending chunk ${chunkNumber}:`, err);
-        
-        // Если ошибка "file is too big", пытаемся разбить еще больше
-        if (err.message && err.message.includes('file is too big')) {
-          console.log(`[${chatId}] Chunk ${chunkNumber} rejected as too big, trying to split into smaller parts...`);
-          try {
-            const smallerChunks = await splitFile(chunkPath, 1); // Разбиваем на части по 1 MB
-            for (let j = 0; j < smallerChunks.length; j++) {
-              const smallChunkPath = smallerChunks[j];
-              await bot.sendDocument(chatId, smallChunkPath, {
-                caption: `📦 Часть ${chunkNumber}.${j + 1} (${(fs.statSync(smallChunkPath).size / 1024 / 1024).toFixed(2)} MB)`,
-                disable_notification: false
-              });
-              if (smallChunkPath !== chunkPath && fs.existsSync(smallChunkPath)) {
-                fs.unlinkSync(smallChunkPath);
-              }
-              if (j < smallerChunks.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1500));
-              }
-            }
-            if (smallerChunks.length > 1 && fs.existsSync(chunkPath)) {
-              fs.unlinkSync(chunkPath);
-            }
-          } catch (retryErr) {
-            console.error(`[${chatId}] Failed to send even smaller chunks:`, retryErr);
-            throw err; // Выбрасываем оригинальную ошибку
-          }
-        } else {
-          throw err;
-        }
-      }
-    }
-
-    return Promise.resolve();
+    return bot.sendDocument(chatId, filePath, {
+      caption:
+        '🎉 Сборка завершена!\n\n' +
+        `📦 Размер архива: ${totalSizeMB} MB\n` +
+        `⏱ Время обработки: ${totalTime}с\n\n` +
+        '📋 Следующие шаги:\n' +
+        '1️⃣ Распакуйте dist.zip\n' +
+        '2️⃣ Загрузите содержимое в public_html\n' +
+        '3️⃣ Проверьте наличие .htaccess\n\n',
+      disable_notification: false
+    });
   } catch (err) {
-    console.error(`[${chatId}] Error in sendFileInChunks:`, err);
+    console.error(`[${chatId}] Error sending file:`, err);
     throw err;
   }
 }
@@ -474,7 +262,7 @@ bot.onText(/\/getfile/, async (msg) => {
   const totalTime = '-'; // Для /getfile не знаем время сборки
 
   try {
-    await sendFileInChunks(chatId, distZipPath, sizeInMB, totalTime);
+    await sendFile(chatId, distZipPath, sizeInMB, totalTime);
   } catch (err) {
     console.error(`[${chatId}] Error sending dist.zip via /getfile:`, err);
     bot.sendMessage(chatId,
@@ -691,27 +479,13 @@ async function processArchive(chatId, fileId, fileName) {
         console.log(`[${chatId}] Archive size: ${actualSizeInMB} MB (${actualSizeInBytes} bytes)`);
         console.log(`[${chatId}] Calculated size: ${sizeInMB} MB (${sizeInBytes} bytes)`);
 
-        // Отправляем файл частями
-        sendFileInChunks(chatId, distZipPath, actualSizeInMB, totalTime)
+        // Отправляем файл
+        sendFile(chatId, distZipPath, actualSizeInMB, totalTime)
           .then(() => {
             console.log(`[${chatId}] File sent successfully`);
             // Cleanup
             try {
               fs.unlinkSync(downloadPath);
-              // Удаляем части файла, если они были созданы
-              const baseName = path.basename(distZipPath, path.extname(distZipPath));
-              const ext = path.extname(distZipPath);
-              const dir = path.dirname(distZipPath);
-              let partIndex = 1;
-              while (true) {
-                const partPath = path.join(dir, `${baseName}.part${String(partIndex).padStart(3, '0')}${ext}`);
-                if (fs.existsSync(partPath)) {
-                  fs.unlinkSync(partPath);
-                  partIndex++;
-                } else {
-                  break;
-                }
-              }
             } catch (cleanupErr) {
               console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
             }
