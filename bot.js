@@ -76,12 +76,6 @@ const cleanDirectory = (directory) => {
 // Функция для отправки файла
 async function sendFile(chatId, filePath, totalSizeMB, totalTime) {
   try {
-    const fileStats = fs.statSync(filePath);
-    const fileSizeMB = (fileStats.size / 1024 / 1024).toFixed(2);
-
-    console.log(`[${chatId}] Sending file: ${filePath}`);
-    console.log(`[${chatId}] File size: ${fileSizeMB} MB`);
-
     return bot.sendDocument(chatId, filePath, {
       caption:
         '🎉 Сборка завершена!\n\n' +
@@ -378,15 +372,17 @@ async function processArchive(chatId, fileId, fileName) {
 
     const buildStartTime = Date.now();
 
-    // Увеличиваем лимит памяти для процесса сборки (4 GB)
-    // Это помогает избежать ошибки "Killed" (код 137) из-за нехватки памяти
+    // Увеличиваем лимит памяти для процесса сборки
+    // Можно настроить через переменную окружения BUILD_MEMORY_LIMIT (в MB)
+    // По умолчанию используем максимум: 16GB (16384 MB)
+    const memoryLimit = process.env.BUILD_MEMORY_LIMIT || '16384'; // По умолчанию 16GB
+    
     const buildCommand = process.platform === 'win32' 
-      ? 'set NODE_OPTIONS=--max-old-space-size=4096 && npm run build'
-      : 'NODE_OPTIONS=--max-old-space-size=4096 npm run build';
+      ? `set NODE_OPTIONS=--max-old-space-size=${memoryLimit} && npm run build`
+      : `NODE_OPTIONS=--max-old-space-size=${memoryLimit} npm run build`;
 
-    exec(buildCommand, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      console.log(stdout);
-      console.error(stderr);
+    exec(buildCommand, { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (stderr) console.error(stderr);
 
       if (error) {
         console.error(`[${chatId}] Build error:`, error);
@@ -397,12 +393,19 @@ async function processArchive(chatId, fileId, fileName) {
         
         if (error.code === 137 || error.signal === 'SIGKILL' || error.killed) {
           errorMessage = 'Процесс сборки был прерван из-за нехватки памяти (OOM)';
+          const memoryLimitGB = (parseInt(memoryLimit) / 1024).toFixed(1);
           suggestions += 
-            '• ⚠️ Недостаточно памяти на сервере\n' +
-            '• Попробуйте уменьшить размер изображений\n' +
-            '• Используйте формат .webp вместо .png/.jpg\n' +
-            '• Уменьшите количество файлов в архиве\n' +
-            '• Обратитесь к администратору для увеличения памяти сервера';
+            '⚠️ *Недостаточно памяти на сервере*\n\n' +
+            `📊 Текущий лимит: ${memoryLimitGB} GB\n\n` +
+            '💡 *Быстрые решения:*\n' +
+            '1️⃣ Уменьшите размер изображений (используйте WebP)\n' +
+            '2️⃣ Уменьшите количество файлов в архиве\n' +
+            '3️⃣ Удалите неиспользуемые изображения\n\n' +
+            '⚙️ *Увеличить лимит памяти:*\n' +
+            'Создайте файл `.env` и добавьте:\n' +
+            '`BUILD_MEMORY_LIMIT=20480` (20 GB)\n' +
+            'или `BUILD_MEMORY_LIMIT=32768` (32 GB)\n\n' +
+            '📖 Подробная инструкция: см. файл `MEMORY-FIX.md`';
         } else {
           suggestions += 
             '• Отсутствуют зависимости (npm install)\n' +
@@ -475,14 +478,9 @@ async function processArchive(chatId, fileId, fileName) {
           return;
         }
 
-        console.log(`[${chatId}] Sending file: ${distZipPath}`);
-        console.log(`[${chatId}] Archive size: ${actualSizeInMB} MB (${actualSizeInBytes} bytes)`);
-        console.log(`[${chatId}] Calculated size: ${sizeInMB} MB (${sizeInBytes} bytes)`);
-
         // Отправляем файл
         sendFile(chatId, distZipPath, actualSizeInMB, totalTime)
           .then(() => {
-            console.log(`[${chatId}] File sent successfully`);
             // Cleanup
             try {
               fs.unlinkSync(downloadPath);
