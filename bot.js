@@ -26,14 +26,17 @@ const saveMessage = (chatId, message) => {
   if (!chatMessages.has(chatId)) {
     chatMessages.set(chatId, []);
   }
-  
+
   const messages = chatMessages.get(chatId);
   messages.push({
     date: new Date(),
     text: message.text || message.caption || '[файл]',
-    from: message.from.first_name
+    from:
+      message.from?.first_name ||
+      message.sender_chat?.title ||
+      'unknown'
   });
-  
+
   // Храним только последние 10 сообщений
   if (messages.length > 10) {
     messages.shift(); // Удаляем самое старое
@@ -60,42 +63,46 @@ process.on('SIGINT', () => {
 // Helper to remove directory contents
 const cleanDirectory = (directory) => {
   if (fs.existsSync(directory)) {
-    fs.rmSync(directory, { recursive: true, force: true });
+    if (fs.rmSync) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    } else {
+      fs.rmdirSync(directory, { recursive: true });
+    }
   }
-  fs.mkdirSync(directory);
+  fs.mkdirSync(directory, { recursive: true });
 };
 
-// Функция для разбиения файла на части (по 20 MB для надежности)
+// Функция для разбиения файла на части (по умолчанию 20 MB, но мы передаём своё значение)
 async function splitFile(filePath, chunkSizeMB = 20) {
-  const chunkSize = chunkSizeMB * 1024 * 1024; // Размер части в байтах (20 MB)
+  const chunkSize = chunkSizeMB * 1024 * 1024; // Размер части в байтах
   const fileStats = fs.statSync(filePath);
   const fileSize = fileStats.size;
-  
+
   if (fileSize <= chunkSize) {
     return [filePath]; // Файл не нужно разбивать
   }
-  
+
   const baseName = path.basename(filePath, path.extname(filePath));
   const ext = path.extname(filePath);
   const dir = path.dirname(filePath);
   const chunks = [];
-  
+
   return new Promise((resolve, reject) => {
     const fileStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
     let chunkIndex = 0;
     let currentChunk = Buffer.alloc(0);
     let writePromises = [];
-    
+
     fileStream.on('data', (data) => {
       currentChunk = Buffer.concat([currentChunk, data]);
-      
+
       while (currentChunk.length >= chunkSize) {
         const chunkData = currentChunk.slice(0, chunkSize);
         currentChunk = currentChunk.slice(chunkSize);
-        
+
         const chunkPath = path.join(dir, `${baseName}.part${String(chunkIndex + 1).padStart(3, '0')}${ext}`);
         chunks.push(chunkPath);
-        
+
         const writePromise = new Promise((writeResolve, writeReject) => {
           const writeStream = fs.createWriteStream(chunkPath);
           writeStream.write(chunkData);
@@ -103,17 +110,17 @@ async function splitFile(filePath, chunkSizeMB = 20) {
           writeStream.on('finish', writeResolve);
           writeStream.on('error', writeReject);
         });
-        
+
         writePromises.push(writePromise);
         chunkIndex++;
       }
     });
-    
+
     fileStream.on('end', async () => {
       if (currentChunk.length > 0) {
         const chunkPath = path.join(dir, `${baseName}.part${String(chunkIndex + 1).padStart(3, '0')}${ext}`);
         chunks.push(chunkPath);
-        
+
         const lastWritePromise = new Promise((writeResolve, writeReject) => {
           const writeStream = fs.createWriteStream(chunkPath);
           writeStream.write(currentChunk);
@@ -121,10 +128,10 @@ async function splitFile(filePath, chunkSizeMB = 20) {
           writeStream.on('finish', writeResolve);
           writeStream.on('error', writeReject);
         });
-        
+
         writePromises.push(lastWritePromise);
       }
-      
+
       try {
         await Promise.all(writePromises);
         resolve(chunks);
@@ -132,7 +139,7 @@ async function splitFile(filePath, chunkSizeMB = 20) {
         reject(err);
       }
     });
-    
+
     fileStream.on('error', reject);
   });
 }
@@ -140,24 +147,35 @@ async function splitFile(filePath, chunkSizeMB = 20) {
 // Функция для отправки файла по частям
 async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
   try {
-    // Разбиваем на части по 5 MB для надежности (даже небольшие файлы могут не проходить)
-    const chunks = await splitFile(filePath, 5);
-    
-    if (chunks.length === 1) {
-      // Файл помещается в один кусок, отправляем как обычно
+    const fileStats = fs.statSync(filePath);
+    const fileSizeMB = (fileStats.size / 1024 / 1024).toFixed(2);
+
+    console.log(`[${chatId}] Preparing to send file: ${filePath}`);
+    console.log(`[${chatId}] File size: ${fileSizeMB} MB`);
+
+    // Если файл больше 3 MB, разбиваем на части по 3 MB
+    // Если меньше 3 MB, все равно разбиваем на части для надежности
+    const chunkSizeMB = parseFloat(fileSizeMB) > 3 ? 3 : Math.max(1, parseFloat(fileSizeMB) / 2);
+    const chunks = await splitFile(filePath, chunkSizeMB);
+
+    console.log(`[${chatId}] File split into ${chunks.length} chunks`);
+
+    if (chunks.length === 1 && parseFloat(fileSizeMB) <= 2) {
+      // Только очень маленькие файлы (< 2 MB) отправляем целиком
+      console.log(`[${chatId}] Sending file as single chunk (${fileSizeMB} MB)`);
       return bot.sendDocument(chatId, filePath, {
-        caption: 
+        caption:
           '🎉 Сборка завершена!\n\n' +
           `📦 Размер архива: ${totalSizeMB} MB\n` +
           `⏱ Время обработки: ${totalTime}с\n\n` +
           '📋 Следующие шаги:\n' +
           '1️⃣ Распакуйте dist.zip\n' +
           '2️⃣ Загрузите содержимое в public_html\n' +
-          '3️⃣ Проверьте наличие .htaccess\n\n',
+          '3️⃣ Проверьте наличие .htaccess\n\n`,
         disable_notification: false
       });
     }
-    
+
     // Отправляем информацию о разбиении
     await bot.sendMessage(chatId,
       `📦 *Архив разбит на ${chunks.length} частей*\n\n` +
@@ -166,31 +184,37 @@ async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
       `📤 Отправляю части...`,
       { parse_mode: 'Markdown' }
     );
-    
+
     // Отправляем каждую часть
     for (let i = 0; i < chunks.length; i++) {
       const chunkPath = chunks[i];
       const chunkNumber = i + 1;
       const chunkStats = fs.statSync(chunkPath);
       const chunkSizeMB = (chunkStats.size / 1024 / 1024).toFixed(2);
-      
+
+      console.log(
+        `[${chatId}] Sending chunk ${chunkNumber}/${chunks.length}: ${path.basename(chunkPath)} (${chunkSizeMB} MB)`
+      );
+
       try {
         await bot.sendDocument(chatId, chunkPath, {
-          caption: `📦 Часть ${chunkNumber} из ${chunks.length} (${chunkSizeMB} MB)\n` +
-                   `Файл: ${path.basename(chunkPath)}\n\n` +
-                   (chunkNumber === chunks.length 
-                     ? '✅ Все части отправлены!\n\n' +
-                       '📋 *Как объединить части:*\n' +
-                       '1️⃣ Скачайте все части на компьютер\n' +
-                       '2️⃣ Объедините их командой:\n' +
-                       '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
-                       '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
-                       '3️⃣ Распакуйте dist.zip\n' +
-                       '4️⃣ Загрузите содержимое в public_html'
-                     : ''),
-          disable_notification: false
+          caption:
+            `📦 Часть ${chunkNumber} из ${chunks.length} (${chunkSizeMB} MB)\n` +
+            `Файл: ${path.basename(chunkPath)}\n\n` +
+            (chunkNumber === chunks.length
+              ? '✅ Все части отправлены!\n\n' +
+                '📋 *Как объединить части:*\n' +
+                '1️⃣ Скачайте все части на компьютер\n' +
+                '2️⃣ Объедините их командой:\n' +
+                '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
+                '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
+                '3️⃣ Распакуйте dist.zip\n' +
+                '4️⃣ Загрузите содержимое в public_html'
+              : ''),
+          disable_notification: false,
+          parse_mode: 'Markdown'
         });
-        
+
         // Задержка между отправками
         if (i < chunks.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -200,7 +224,7 @@ async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
         throw err;
       }
     }
-    
+
     return Promise.resolve();
   } catch (err) {
     console.error(`[${chatId}] Error in sendFileInChunks:`, err);
@@ -279,8 +303,8 @@ bot.onText(/\/status/, (msg) => {
   );
 });
 
-// Команда /getfile - получить последний dist.zip
-bot.onText(/\/getfile/, (msg) => {
+// Команда /getfile - получить последний dist.zip (с учётом лимита Telegram и разбиением)
+bot.onText(/\/getfile/, async (msg) => {
   const chatId = msg.chat.id;
   saveMessage(chatId, msg);
 
@@ -295,36 +319,41 @@ bot.onText(/\/getfile/, (msg) => {
   }
 
   const stats = fs.statSync(distZipPath);
-  const sizeInMB = (stats.size / 1024 / 1024).toFixed(2);
+  const sizeInBytes = stats.size;
+  const sizeInMB = (sizeInBytes / 1024 / 1024).toFixed(2);
   const modifiedDate = new Date(stats.mtime).toLocaleString('ru-RU');
 
-  bot.sendMessage(chatId,
+  const maxSizeInBytes = 50 * 1024 * 1024; // 50 MB лимит Telegram
+
+  if (sizeInBytes > maxSizeInBytes) {
+    return bot.sendMessage(chatId,
+      '❌ *Файл слишком большой для отправки через Telegram*\n\n' +
+      `📦 Размер: ${sizeInMB} MB\n` +
+      `⚠️ Лимит Telegram: 50 MB\n\n` +
+      'Файл находится на сервере как `dist.zip`.\n' +
+      'Попросите администратора забрать его напрямую.',
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  await bot.sendMessage(chatId,
     `📦 *Отправляю последний собранный архив*\n\n` +
     `📊 Размер: ${sizeInMB} MB\n` +
     `🕐 Создан: ${modifiedDate}\n\n` +
-    `Отправляю...`,
+    `Если потребуется, отправлю архив по частям.`,
     { parse_mode: 'Markdown' }
   );
 
-  bot.sendDocument(chatId, distZipPath, {
-    caption:
-      '📦 *Последняя сборка проекта*\n\n' +
-      `📊 Размер: ${sizeInMB} MB\n` +
-      `🕐 Создан: ${modifiedDate}`,
-    parse_mode: 'Markdown'
-  })
-  .catch(err => {
-    console.error(`[${chatId}] Error sending existing dist.zip:`, err);
-    console.error(`[${chatId}] Telegram API error:`, err.response?.body);
+  const totalTime = '-'; // Для /getfile не знаем время сборки
 
+  try {
+    await sendFileInChunks(chatId, distZipPath, sizeInMB, totalTime);
+  } catch (err) {
+    console.error(`[${chatId}] Error sending dist.zip via /getfile:`, err);
     bot.sendMessage(chatId,
-      '❌ Не удалось отправить файл\n\n' +
-      `Причина: ${err.message}\n\n` +
-      'Файл находится на сервере: dist.zip\n' +
-      'Попросите администратора забрать его напрямую.'
-      // Убрали parse_mode: 'Markdown' чтобы избежать проблем с парсингом
-    );
-  });
+      '❌ Не удалось отправить архив через /getfile.\n' +
+      'Попробуйте позже или обратитесь к администратору.');
+  }
 });
 
 // Команда /debug
@@ -385,14 +414,14 @@ bot.on('document', async (msg) => {
   // Сохраняем сообщение с документом
   saveMessage(chatId, msg);
 
-  if (mimeType !== 'application/zip' && !fileName.endsWith('.zip')) {
-    return bot.sendMessage(chatId, '❌ Пожалуйста, пришлите ZIP архив.');
+  // Проверяем только расширение: у Telegram mimeType может быть разным
+  if (!fileName.toLowerCase().endsWith('.zip')) {
+    return bot.sendMessage(chatId, '❌ Пожалуйста, пришлите ZIP-архив (.zip).');
   }
 
   // Сразу начинаем обработку архива
   processArchive(chatId, fileId, fileName);
 });
-
 
 // Функция обработки архива
 async function processArchive(chatId, fileId, fileName) {
@@ -416,13 +445,17 @@ async function processArchive(chatId, fileId, fileName) {
 
     // Handle case where user zipped the folder "public" itself, creating public/public/...
     const items = fs.readdirSync(publicDir);
-    if (items.length === 1 && items[0] === 'public' && fs.statSync(path.join(publicDir, 'public')).isDirectory()) {
-       const nestedPublic = path.join(publicDir, 'public');
-       const nestedItems = fs.readdirSync(nestedPublic);
-       nestedItems.forEach(item => {
-         fs.renameSync(path.join(nestedPublic, item), path.join(publicDir, item));
-       });
-       fs.rmdirSync(nestedPublic);
+    if (
+      items.length === 1 &&
+      items[0] === 'public' &&
+      fs.statSync(path.join(publicDir, 'public')).isDirectory()
+    ) {
+      const nestedPublic = path.join(publicDir, 'public');
+      const nestedItems = fs.readdirSync(nestedPublic);
+      nestedItems.forEach(item => {
+        fs.renameSync(path.join(nestedPublic, item), path.join(publicDir, item));
+      });
+      fs.rmdirSync(nestedPublic);
     }
 
     // 3. Build
@@ -431,6 +464,9 @@ async function processArchive(chatId, fileId, fileName) {
     const buildStartTime = Date.now();
 
     exec('npm run build', (error, stdout, stderr) => {
+      console.log(stdout);
+      console.error(stderr);
+
       if (error) {
         console.error(`[${chatId}] Build error:`, error);
         return bot.sendMessage(chatId,
@@ -458,7 +494,6 @@ async function processArchive(chatId, fileId, fileName) {
         const sizeInBytes = archive.pointer();
         const sizeInMB = (sizeInBytes / 1024 / 1024).toFixed(2);
         const totalTime = ((Date.now() - buildStartTime) / 1000).toFixed(1);
-
 
         // Проверка размера файла (лимит Telegram: 50 MB)
         const maxSizeInBytes = 50 * 1024 * 1024; // 50 MB
@@ -493,111 +528,154 @@ async function processArchive(chatId, fileId, fileName) {
         const actualFileStats = fs.statSync(distZipPath);
         const actualSizeInBytes = actualFileStats.size;
         const actualSizeInMB = (actualSizeInBytes / 1024 / 1024).toFixed(2);
-        
+
         // Проверяем, что файл не пустой
         if (actualSizeInBytes === 0) {
           console.error(`[${chatId}] Archive file is empty: ${distZipPath}`);
           bot.sendMessage(chatId, '❌ Архив пустой. Попробуйте еще раз.');
           return;
         }
-        
+
         console.log(`[${chatId}] Sending file: ${distZipPath}`);
         console.log(`[${chatId}] Archive size: ${actualSizeInMB} MB (${actualSizeInBytes} bytes)`);
         console.log(`[${chatId}] Calculated size: ${sizeInMB} MB (${sizeInBytes} bytes)`);
 
-        // Отправляем файл (автоматически разобьется на части если > 20 MB)
+        // Отправляем файл частями
         sendFileInChunks(chatId, distZipPath, actualSizeInMB, totalTime)
-        .then(() => {
-          console.log(`[${chatId}] File sent successfully`);
-          // Cleanup
-          try {
-            fs.unlinkSync(downloadPath);
-            // Удаляем части файла, если они были созданы
-            const baseName = path.basename(distZipPath, path.extname(distZipPath));
-            const ext = path.extname(distZipPath);
-            const dir = path.dirname(distZipPath);
-            let partIndex = 1;
-            while (true) {
-              const partPath = path.join(dir, `${baseName}.part${String(partIndex).padStart(3, '0')}${ext}`);
-              if (fs.existsSync(partPath)) {
-                fs.unlinkSync(partPath);
-                partIndex++;
-              } else {
-                break;
+          .then(() => {
+            console.log(`[${chatId}] File sent successfully`);
+            // Cleanup
+            try {
+              fs.unlinkSync(downloadPath);
+              // Удаляем части файла, если они были созданы
+              const baseName = path.basename(distZipPath, path.extname(distZipPath));
+              const ext = path.extname(distZipPath);
+              const dir = path.dirname(distZipPath);
+              let partIndex = 1;
+              while (true) {
+                const partPath = path.join(dir, `${baseName}.part${String(partIndex).padStart(3, '0')}${ext}`);
+                if (fs.existsSync(partPath)) {
+                  fs.unlinkSync(partPath);
+                  partIndex++;
+                } else {
+                  break;
+                }
               }
+            } catch (cleanupErr) {
+              console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
             }
-          } catch (cleanupErr) {
-            console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
-          }
-          // Очищаем состояние
-          chatStates.delete(chatId);
-        })
-        .catch(err => {
-          console.error(`[${chatId}] ━━━━━━ ERROR SENDING DOCUMENT ━━━━━━`);
-          console.error(`[${chatId}] File path: ${distZipPath}`);
-          console.error(`[${chatId}] File exists: ${fs.existsSync(distZipPath)}`);
-          console.error(`[${chatId}] File size: ${actualSizeInMB} MB`);
-          console.error(`[${chatId}] Error message:`, err.message);
-          console.error(`[${chatId}] Error code:`, err.code);
-          console.error(`[${chatId}] Error stack:`, err.stack);
+            // Очищаем состояние
+            chatStates.delete(chatId);
+          })
+          .catch(err => {
+            console.error(`[${chatId}] ━━━━━━ ERROR SENDING DOCUMENT ━━━━━━`);
+            console.error(`[${chatId}] File path: ${distZipPath}`);
+            console.error(`[${chatId}] File exists: ${fs.existsSync(distZipPath)}`);
+            console.error(`[${chatId}] File size: ${actualSizeInMB} MB`);
+            console.error(`[${chatId}] Error message:`, err.message);
+            console.error(`[${chatId}] Error code:`, err.code);
+            console.error(`[${chatId}] Error stack:`, err.stack);
 
-          // Логируем тело ответа от Telegram API
-          if (err.response && err.response.body) {
-            console.error(`[${chatId}] Telegram API response body:`, JSON.stringify(err.response.body, null, 2));
-          }
-
-          // Логируем полный объект ошибки для диагностики
-          console.error(`[${chatId}] Full error object:`, JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
-          console.error(`[${chatId}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
-          // Определяем причину ошибки
-          let errorReason = err.message;
-          let suggestions = '';
-
-          // Проверяем конкретные типы ошибок от Telegram API
-          if (err.response && err.response.body) {
-            const telegramError = err.response.body;
-            if (telegramError.description) {
-              errorReason = telegramError.description;
+            // Логируем тело ответа от Telegram API
+            if (err.response && err.response.body) {
+              console.error(
+                `[${chatId}] Telegram API response body:`,
+                JSON.stringify(err.response.body, null, 2)
+              );
             }
 
-            // Специфичные советы на основе ошибки
-            if (errorReason.includes('Request Entity Too Large') || errorReason.includes('file is too big') || errorReason.includes('413')) {
-              suggestions = '• Файл превышает лимит Telegram (50 MB)\n• Текущий размер: ' + actualSizeInMB + ' MB\n• Попробуйте уменьшить размер изображений\n• Используйте формат .webp для изображений';
-            } else if (errorReason.includes('Wrong file identifier') || errorReason.includes('file not found') || errorReason.includes('400')) {
-              suggestions = '• Проблема с файлом на диске\n• Файл может быть поврежден\n• Попробуйте отправить архив еще раз';
-            } else if (errorReason.includes('ETELEGRAM') || errorReason.includes('timeout') || errorReason.includes('504')) {
-              suggestions = '• Таймаут при отправке (файл слишком большой или медленное соединение)\n• Попробуйте через несколько минут\n• Проверьте интернет-соединение';
-            } else if (errorReason.includes('429') || errorReason.includes('rate limit')) {
-              suggestions = '• Превышен лимит запросов к Telegram API\n• Подождите несколько минут и попробуйте снова';
+            // Логируем полный объект ошибки для диагностики
+            console.error(
+              `[${chatId}] Full error object:`,
+              JSON.stringify(err, Object.getOwnPropertyNames(err), 2)
+            );
+            console.error(`[${chatId}] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+            // Определяем причину ошибки
+            let errorReason = err.message;
+            let suggestions = '';
+
+            if (err.response && err.response.body) {
+              const telegramError = err.response.body;
+              if (telegramError.description) {
+                errorReason = telegramError.description;
+              }
+
+              if (
+                errorReason.includes('Request Entity Too Large') ||
+                errorReason.includes('file is too big') ||
+                errorReason.includes('413')
+              ) {
+                suggestions =
+                  '• Файл превышает лимит Telegram (50 MB)\n' +
+                  '• Текущий размер: ' +
+                  actualSizeInMB +
+                  ' MB\n' +
+                  '• Попробуйте уменьшить размер изображений\n' +
+                  '• Используйте формат .webp для изображений';
+              } else if (
+                errorReason.includes('Wrong file identifier') ||
+                errorReason.includes('file not found') ||
+                errorReason.includes('400')
+              ) {
+                suggestions =
+                  '• Проблема с файлом на диске\n' +
+                  '• Файл может быть поврежден\n' +
+                  '• Попробуйте отправить архив еще раз';
+              } else if (
+                errorReason.includes('ETELEGRAM') ||
+                errorReason.includes('timeout') ||
+                errorReason.includes('504')
+              ) {
+                suggestions =
+                  '• Таймаут при отправке (файл слишком большой или медленное соединение)\n' +
+                  '• Попробуйте через несколько минут\n' +
+                  '• Проверьте интернет-соединение';
+              } else if (errorReason.includes('429') || errorReason.includes('rate limit')) {
+                suggestions =
+                  '• Превышен лимит запросов к Telegram API\n' +
+                  '• Подождите несколько минут и попробуйте снова';
+              } else {
+                suggestions =
+                  '• Проверьте интернет-соединение\n' +
+                  '• Попробуйте отправить архив еще раз\n' +
+                  '• Если проблема повторяется, используйте /getfile для получения файла';
+              }
             } else {
-              suggestions = '• Проверьте интернет-соединение\n• Попробуйте отправить архив еще раз\n• Если проблема повторяется, используйте /getfile для получения файла';
+              suggestions =
+                '• Проверьте интернет-соединение\n' +
+                '• Попробуйте отправить архив еще раз\n' +
+                '• Используйте /getfile для получения файла';
             }
-          } else {
-            suggestions = '• Проверьте интернет-соединение\n• Попробуйте отправить архив еще раз\n• Используйте /getfile для получения файла';
-          }
 
-          bot.sendMessage(chatId,
-            '❌ *Ошибка при отправке архива*\n\n' +
-            `📦 Размер файла: ${actualSizeInMB} MB\n` +
-            `❗ Причина: ${errorReason}\n\n` +
-            '💡 *Возможные решения:*\n' +
-            suggestions + '\n\n' +
-            '📁 Архив сохранен локально: `dist.zip`\n' +
-            '💡 Используйте `/getfile` для повторной попытки отправки\n' +
-            '🔍 Используйте `/debug` для диагностики',
-            { parse_mode: 'Markdown' }
-          );
+            // Экранируем спецсимволы в Markdown
+            const safeErrorReason = (errorReason || '').replace(
+              /[_*[\]()~`>#+\-=|{}.!]/g,
+              '\\$&'
+            );
 
-          // Cleanup даже при ошибке
-          try {
-            fs.unlinkSync(downloadPath);
-          } catch (cleanupErr) {
-            console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
-          }
-          // Очищаем состояние
-          chatStates.delete(chatId);
-        });
+            bot.sendMessage(chatId,
+              '❌ *Ошибка при отправке архива*\n\n' +
+              `📦 Размер файла: ${actualSizeInMB} MB\n` +
+              `❗ Причина: \`${safeErrorReason}\`\n\n` +
+              '💡 *Возможные решения:*\n' +
+              suggestions +
+              '\n\n' +
+              '📁 Архив сохранен локально: `dist.zip`\n' +
+              '💡 Используйте `/getfile` для повторной попытки отправки\n' +
+              '🔍 Используйте `/debug` для диагностики',
+              { parse_mode: 'Markdown' }
+            );
+
+            // Cleanup даже при ошибке
+            try {
+              fs.unlinkSync(downloadPath);
+            } catch (cleanupErr) {
+              console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
+            }
+            // Очищаем состояние
+            chatStates.delete(chatId);
+          });
       });
 
       archive.on('error', (err) => {
@@ -641,11 +719,11 @@ async function processArchive(chatId, fileId, fileName) {
 // Обработка обычных текстовых сообщений
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
-  
+
   // Игнорируем команды и документы (они обрабатываются отдельно)
   if (msg.text && !msg.text.startsWith('/') && !msg.document && !msg.photo) {
     saveMessage(chatId, msg);
-    
+
     bot.sendMessage(chatId,
       '🤔 Я понимаю только ZIP-архивы с файлами проекта.\n\n' +
       '📝 Используйте:\n' +
@@ -656,4 +734,3 @@ bot.on('message', (msg) => {
     );
   }
 });
-
