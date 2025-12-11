@@ -311,7 +311,7 @@ async function processArchive(chatId, fileId, fileName) {
       const output = fs.createWriteStream(distZipPath);
       const archive = archiver('zip', { zlib: { level: 9 } });
 
-      output.on('close', () => {
+      output.on('close', async () => {
         const sizeInBytes = archive.pointer();
         const sizeInMB = (sizeInBytes / 1024 / 1024).toFixed(2);
         const totalTime = ((Date.now() - buildStartTime) / 1000).toFixed(1);
@@ -336,6 +336,9 @@ async function processArchive(chatId, fileId, fileName) {
           return;
         }
 
+        // Небольшая задержка, чтобы убедиться, что файл полностью записан на диск
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Проверяем, что файл существует и читаем
         if (!fs.existsSync(distZipPath)) {
           console.error(`[${chatId}] Archive file not found: ${distZipPath}`);
@@ -343,18 +346,37 @@ async function processArchive(chatId, fileId, fileName) {
           return;
         }
 
+        // Проверяем реальный размер файла на диске
+        const actualFileStats = fs.statSync(distZipPath);
+        const actualSizeInBytes = actualFileStats.size;
+        const actualSizeInMB = (actualSizeInBytes / 1024 / 1024).toFixed(2);
+        
+        // Проверяем, что файл не пустой
+        if (actualSizeInBytes === 0) {
+          console.error(`[${chatId}] Archive file is empty: ${distZipPath}`);
+          bot.sendMessage(chatId, '❌ Архив пустой. Попробуйте еще раз.');
+          return;
+        }
+        
+        console.log(`[${chatId}] Sending file: ${distZipPath}`);
+        console.log(`[${chatId}] Archive size: ${actualSizeInMB} MB (${actualSizeInBytes} bytes)`);
+        console.log(`[${chatId}] Calculated size: ${sizeInMB} MB (${sizeInBytes} bytes)`);
+
         bot.sendDocument(chatId, distZipPath, { 
           caption: 
             '🎉 Сборка завершена!\n\n' +
-            `📦 Размер архива: ${sizeInMB} MB\n` +
+            `📦 Размер архива: ${actualSizeInMB} MB\n` +
             `⏱ Время обработки: ${totalTime}с\n\n` +
             '📋 Следующие шаги:\n' +
             '1️⃣ Распакуйте dist.zip\n' +
             '2️⃣ Загрузите содержимое в public_html\n' +
             '3️⃣ Проверьте наличие .htaccess\n\n',
           disable_notification: false
+        }, {
+          filename: 'dist.zip'
         })
         .then(() => {
+          console.log(`[${chatId}] File sent successfully`);
           // Cleanup
           try {
             fs.unlinkSync(downloadPath);
@@ -366,8 +388,12 @@ async function processArchive(chatId, fileId, fileName) {
         })
         .catch(err => {
           console.error(`[${chatId}] ━━━━━━ ERROR SENDING DOCUMENT ━━━━━━`);
+          console.error(`[${chatId}] File path: ${distZipPath}`);
+          console.error(`[${chatId}] File exists: ${fs.existsSync(distZipPath)}`);
+          console.error(`[${chatId}] File size: ${actualSizeInMB} MB`);
           console.error(`[${chatId}] Error message:`, err.message);
           console.error(`[${chatId}] Error code:`, err.code);
+          console.error(`[${chatId}] Error stack:`, err.stack);
 
           // Логируем тело ответа от Telegram API
           if (err.response && err.response.body) {
@@ -390,26 +416,31 @@ async function processArchive(chatId, fileId, fileName) {
             }
 
             // Специфичные советы на основе ошибки
-            if (errorReason.includes('Request Entity Too Large') || errorReason.includes('file is too big')) {
-              suggestions = '• Файл превышает лимит (обычно из-за больших изображений)\n• Сожмите изображения в формат .webp\n• Уменьшите качество изображений';
-            } else if (errorReason.includes('Wrong file identifier') || errorReason.includes('file not found')) {
-              suggestions = '• Проблема с файлом на диске\n• Попробуйте отправить архив еще раз';
-            } else if (errorReason.includes('ETELEGRAM')) {
-              suggestions = '• Проблема с Telegram API\n• Проверьте токен бота\n• Попробуйте через несколько минут';
+            if (errorReason.includes('Request Entity Too Large') || errorReason.includes('file is too big') || errorReason.includes('413')) {
+              suggestions = '• Файл превышает лимит Telegram (50 MB)\n• Текущий размер: ' + actualSizeInMB + ' MB\n• Попробуйте уменьшить размер изображений\n• Используйте формат .webp для изображений';
+            } else if (errorReason.includes('Wrong file identifier') || errorReason.includes('file not found') || errorReason.includes('400')) {
+              suggestions = '• Проблема с файлом на диске\n• Файл может быть поврежден\n• Попробуйте отправить архив еще раз';
+            } else if (errorReason.includes('ETELEGRAM') || errorReason.includes('timeout') || errorReason.includes('504')) {
+              suggestions = '• Таймаут при отправке (файл слишком большой или медленное соединение)\n• Попробуйте через несколько минут\n• Проверьте интернет-соединение';
+            } else if (errorReason.includes('429') || errorReason.includes('rate limit')) {
+              suggestions = '• Превышен лимит запросов к Telegram API\n• Подождите несколько минут и попробуйте снова';
             } else {
-              suggestions = '• Проверьте интернет-соединение\n• Попробуйте отправить архив еще раз\n• Уменьшите размер изображений';
+              suggestions = '• Проверьте интернет-соединение\n• Попробуйте отправить архив еще раз\n• Если проблема повторяется, используйте /getfile для получения файла';
             }
+          } else {
+            suggestions = '• Проверьте интернет-соединение\n• Попробуйте отправить архив еще раз\n• Используйте /getfile для получения файла';
           }
 
           bot.sendMessage(chatId,
-            '❌ Ошибка при отправке архива\n\n' +
-            `📦 Размер: ${sizeInMB} MB\n` +
+            '❌ *Ошибка при отправке архива*\n\n' +
+            `📦 Размер файла: ${actualSizeInMB} MB\n` +
             `❗ Причина: ${errorReason}\n\n` +
-            '💡 Возможные решения:\n' +
+            '💡 *Возможные решения:*\n' +
             suggestions + '\n\n' +
-            '📁 Архив сохранен локально: dist.zip\n' +
-            'Можете забрать его напрямую с сервера.\n\n' +
-            'Используйте /debug для диагностики.'
+            '📁 Архив сохранен локально: `dist.zip`\n' +
+            '💡 Используйте `/getfile` для повторной попытки отправки\n' +
+            '🔍 Используйте `/debug` для диагностики',
+            { parse_mode: 'Markdown' }
           );
 
           // Cleanup даже при ошибке
