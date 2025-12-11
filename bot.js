@@ -65,6 +65,149 @@ const cleanDirectory = (directory) => {
   fs.mkdirSync(directory);
 };
 
+// Функция для разбиения файла на части (по 20 MB для надежности)
+async function splitFile(filePath, chunkSizeMB = 20) {
+  const chunkSize = chunkSizeMB * 1024 * 1024; // Размер части в байтах (20 MB)
+  const fileStats = fs.statSync(filePath);
+  const fileSize = fileStats.size;
+  
+  if (fileSize <= chunkSize) {
+    return [filePath]; // Файл не нужно разбивать
+  }
+  
+  const baseName = path.basename(filePath, path.extname(filePath));
+  const ext = path.extname(filePath);
+  const dir = path.dirname(filePath);
+  const chunks = [];
+  
+  return new Promise((resolve, reject) => {
+    const fileStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+    let chunkIndex = 0;
+    let currentChunk = Buffer.alloc(0);
+    let writePromises = [];
+    
+    fileStream.on('data', (data) => {
+      currentChunk = Buffer.concat([currentChunk, data]);
+      
+      while (currentChunk.length >= chunkSize) {
+        const chunkData = currentChunk.slice(0, chunkSize);
+        currentChunk = currentChunk.slice(chunkSize);
+        
+        const chunkPath = path.join(dir, `${baseName}.part${String(chunkIndex + 1).padStart(3, '0')}${ext}`);
+        chunks.push(chunkPath);
+        
+        const writePromise = new Promise((writeResolve, writeReject) => {
+          const writeStream = fs.createWriteStream(chunkPath);
+          writeStream.write(chunkData);
+          writeStream.end();
+          writeStream.on('finish', writeResolve);
+          writeStream.on('error', writeReject);
+        });
+        
+        writePromises.push(writePromise);
+        chunkIndex++;
+      }
+    });
+    
+    fileStream.on('end', async () => {
+      if (currentChunk.length > 0) {
+        const chunkPath = path.join(dir, `${baseName}.part${String(chunkIndex + 1).padStart(3, '0')}${ext}`);
+        chunks.push(chunkPath);
+        
+        const lastWritePromise = new Promise((writeResolve, writeReject) => {
+          const writeStream = fs.createWriteStream(chunkPath);
+          writeStream.write(currentChunk);
+          writeStream.end();
+          writeStream.on('finish', writeResolve);
+          writeStream.on('error', writeReject);
+        });
+        
+        writePromises.push(lastWritePromise);
+      }
+      
+      try {
+        await Promise.all(writePromises);
+        resolve(chunks);
+      } catch (err) {
+        reject(err);
+      }
+    });
+    
+    fileStream.on('error', reject);
+  });
+}
+
+// Функция для отправки файла по частям
+async function sendFileInChunks(chatId, filePath, totalSizeMB, totalTime) {
+  try {
+    // Разбиваем на части по 5 MB для надежности (даже небольшие файлы могут не проходить)
+    const chunks = await splitFile(filePath, 5);
+    
+    if (chunks.length === 1) {
+      // Файл помещается в один кусок, отправляем как обычно
+      return bot.sendDocument(chatId, filePath, {
+        caption: 
+          '🎉 Сборка завершена!\n\n' +
+          `📦 Размер архива: ${totalSizeMB} MB\n` +
+          `⏱ Время обработки: ${totalTime}с\n\n` +
+          '📋 Следующие шаги:\n' +
+          '1️⃣ Распакуйте dist.zip\n' +
+          '2️⃣ Загрузите содержимое в public_html\n' +
+          '3️⃣ Проверьте наличие .htaccess\n\n',
+        disable_notification: false
+      });
+    }
+    
+    // Отправляем информацию о разбиении
+    await bot.sendMessage(chatId,
+      `📦 *Архив разбит на ${chunks.length} частей*\n\n` +
+      `📊 Общий размер: ${totalSizeMB} MB\n` +
+      `⏱ Время обработки: ${totalTime}с\n\n` +
+      `📤 Отправляю части...`,
+      { parse_mode: 'Markdown' }
+    );
+    
+    // Отправляем каждую часть
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkPath = chunks[i];
+      const chunkNumber = i + 1;
+      const chunkStats = fs.statSync(chunkPath);
+      const chunkSizeMB = (chunkStats.size / 1024 / 1024).toFixed(2);
+      
+      try {
+        await bot.sendDocument(chatId, chunkPath, {
+          caption: `📦 Часть ${chunkNumber} из ${chunks.length} (${chunkSizeMB} MB)\n` +
+                   `Файл: ${path.basename(chunkPath)}\n\n` +
+                   (chunkNumber === chunks.length 
+                     ? '✅ Все части отправлены!\n\n' +
+                       '📋 *Как объединить части:*\n' +
+                       '1️⃣ Скачайте все части на компьютер\n' +
+                       '2️⃣ Объедините их командой:\n' +
+                       '   Windows: `copy /b dist.zip.part* dist.zip`\n' +
+                       '   Mac/Linux: `cat dist.zip.part* > dist.zip`\n' +
+                       '3️⃣ Распакуйте dist.zip\n' +
+                       '4️⃣ Загрузите содержимое в public_html'
+                     : ''),
+          disable_notification: false
+        });
+        
+        // Задержка между отправками
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (err) {
+        console.error(`[${chatId}] Error sending chunk ${chunkNumber}:`, err);
+        throw err;
+      }
+    }
+    
+    return Promise.resolve();
+  } catch (err) {
+    console.error(`[${chatId}] Error in sendFileInChunks:`, err);
+    throw err;
+  }
+}
+
 // Команда /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
@@ -362,24 +505,27 @@ async function processArchive(chatId, fileId, fileName) {
         console.log(`[${chatId}] Archive size: ${actualSizeInMB} MB (${actualSizeInBytes} bytes)`);
         console.log(`[${chatId}] Calculated size: ${sizeInMB} MB (${sizeInBytes} bytes)`);
 
-        bot.sendDocument(chatId, distZipPath, { 
-          caption: 
-            '🎉 Сборка завершена!\n\n' +
-            `📦 Размер архива: ${actualSizeInMB} MB\n` +
-            `⏱ Время обработки: ${totalTime}с\n\n` +
-            '📋 Следующие шаги:\n' +
-            '1️⃣ Распакуйте dist.zip\n' +
-            '2️⃣ Загрузите содержимое в public_html\n' +
-            '3️⃣ Проверьте наличие .htaccess\n\n',
-          disable_notification: false
-        }, {
-          filename: 'dist.zip'
-        })
+        // Отправляем файл (автоматически разобьется на части если > 20 MB)
+        sendFileInChunks(chatId, distZipPath, actualSizeInMB, totalTime)
         .then(() => {
           console.log(`[${chatId}] File sent successfully`);
           // Cleanup
           try {
             fs.unlinkSync(downloadPath);
+            // Удаляем части файла, если они были созданы
+            const baseName = path.basename(distZipPath, path.extname(distZipPath));
+            const ext = path.extname(distZipPath);
+            const dir = path.dirname(distZipPath);
+            let partIndex = 1;
+            while (true) {
+              const partPath = path.join(dir, `${baseName}.part${String(partIndex).padStart(3, '0')}${ext}`);
+              if (fs.existsSync(partPath)) {
+                fs.unlinkSync(partPath);
+                partIndex++;
+              } else {
+                break;
+              }
+            }
           } catch (cleanupErr) {
             console.warn(`[${chatId}] Cleanup warning:`, cleanupErr.message);
           }
