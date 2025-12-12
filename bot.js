@@ -478,6 +478,9 @@ async function processArchive(chatId, fileId, fileName) {
           return;
         }
 
+        // Отправляем сообщение с путем к файлу
+        bot.sendMessage(chatId, 'Путь к файлу: ' + distZipPath);
+        
         // Отправляем файл
         sendFile(chatId, distZipPath, actualSizeInMB, totalTime)
           .then(() => {
